@@ -108,16 +108,13 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
         m_capture.start(evt -> {
             CaptureThread.CaptureEvent captureEvt = (CaptureThread.CaptureEvent) evt;
             if (captureEvt.capture_result != null && captureEvt.capture_result.quality == Reader.CaptureQuality.GOOD) {
-                // Save fingerprint with user info
                 FingerprintDAO.saveFingerprint(captureEvt.capture_result.image.getData(),nameField.getText(), surnameField.getText(), idField.getText());
                 fingerDialogue.dispose();
                 System.out.println("Fingerprint added to database!\n\n");
                 if (m_dlgParent != null) {
                     m_dlgParent.dispose();
                 }
-                // Optional: restart capture if needed
-                WaitForCaptureThread();
-                StartCaptureThread();
+                StopCaptureThread();
             } else {
                 System.out.println("No valid capture. Try again...\n");
             }

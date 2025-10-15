@@ -1,28 +1,25 @@
-
-
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 
 /**
- * Database connection class for Derby.
- * Uses username "letago" and password "#Maureen58".
+ * Database connection class for MySQL (Railway).
  */
 public class Database {
 
-    private static final String URL = "jdbc:derby://localhost:1527/fingerprint";
-    private static final String USER = "letago";
-    private static final String PASSWORD = "#Maureen58";
+    private static final String URL = "jdbc:mysql://shortline.proxy.rlwy.net:36648/railway";
+    private static final String USER = "root";
+    private static final String PASSWORD = "wHwviYYfzHbeerUnyxIyccXUrYgAhzsL";
     private static Connection connection = null;
 
     public static Connection getConnection() {
         if (connection == null) {
             try {
-                Class.forName("org.apache.derby.jdbc.ClientDriver");
+                Class.forName("com.mysql.cj.jdbc.Driver"); // MySQL driver
                 connection = DriverManager.getConnection(URL, USER, PASSWORD);
-                System.out.println("✅ Connected to Derby database as user '" + USER + "'.");
+                System.out.println("✅ Connected to MySQL database as user '" + USER + "'.");
             } catch (ClassNotFoundException e) {
-                System.out.println("❌ Derby driver not found: " + e.getMessage());
+                System.out.println("❌ MySQL driver not found: " + e.getMessage());
             } catch (SQLException ex) {
                 System.out.println("❌ Database connection failed: " + ex.getMessage());
             }
