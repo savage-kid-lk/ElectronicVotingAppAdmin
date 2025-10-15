@@ -1,5 +1,4 @@
 
-
 import java.awt.Dimension;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -107,21 +106,39 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
 
         m_capture.start(evt -> {
             CaptureThread.CaptureEvent captureEvt = (CaptureThread.CaptureEvent) evt;
-            if (captureEvt.capture_result != null && captureEvt.capture_result.quality == Reader.CaptureQuality.GOOD) {
-                FingerprintDAO.saveFingerprint(captureEvt.capture_result.image.getData(),nameField.getText(), surnameField.getText(), idField.getText());
+            if (captureEvt.capture_result != null
+                    && captureEvt.capture_result.quality == Reader.CaptureQuality.GOOD) {
+
+                // Save fingerprint to database
+                AdminDatabaseLogic.saveFingerprint(
+                        Database.getConnection(),
+                        captureEvt.capture_result.image.getData(),
+                        nameField.getText(),
+                        surnameField.getText(),
+                        idField.getText()
+                );
+
                 fingerDialogue.dispose();
-                System.out.println("Fingerprint added to database!\n\n");
+                System.out.println("✅ Fingerprint added to database!");
+
                 if (m_dlgParent != null) {
                     m_dlgParent.dispose();
                 }
                 StopCaptureThread();
             } else {
-                System.out.println("No valid capture. Try again...\n");
+                System.out.println("❌ No valid capture. Try again...");
             }
         });
+
     }
 
     private void doModal(JDialog dlgParent) {
+        if (dlgParent == null) {
+            dlgParent = new JDialog((JFrame) null, "Enrollment", true);
+        }
+
+        m_dlgParent = dlgParent;
+
         try {
             m_reader.Open(Reader.Priority.COOPERATIVE);
         } catch (UareUException e) {
@@ -131,7 +148,6 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
 
         StartCaptureThread();
 
-        m_dlgParent = dlgParent;
         m_dlgParent.setContentPane(this);
         m_dlgParent.pack();
         m_dlgParent.setLocationRelativeTo(null);
@@ -171,7 +187,6 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
             e.printStackTrace();
         }
     }*/
-
     @Override
     public void actionPerformed(ActionEvent e) {
         //throw new UnsupportedOperationException("Not supported yet."); // Generated from nbfs://nbhost/SystemFileSystem/Templates/Classes/Code/GeneratedMethodBody
