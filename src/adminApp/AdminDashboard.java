@@ -1,3 +1,4 @@
+package adminApp;
 
 import com.digitalpersona.uareu.*;
 import javax.swing.*;

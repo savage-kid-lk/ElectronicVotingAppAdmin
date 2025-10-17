@@ -1,3 +1,4 @@
+package adminApp;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -7,7 +8,7 @@ import java.util.Vector;
 public class AdminDatabaseLogic {
 
     // Save fingerprint with voter details
-    public static void saveFingerprint(Connection conn, byte[] fidData, String name, String surname, String idNum) {
+    public static void saveVoter(Connection conn, byte[] fidData, String name, String surname, String idNum) {
         String sql = "INSERT INTO VOTERS (FINGERPRINT, NAME, SURNAME, ID_NUMBER) VALUES (?, ?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setBytes(1, fidData);
@@ -16,6 +17,20 @@ public class AdminDatabaseLogic {
             stmt.setString(4, idNum);
             stmt.executeUpdate();
             System.out.println("🧩 Fingerprint and voter details saved to database.");
+        } catch (SQLException e) {
+            System.out.println("❌ Error saving fingerprint: " + e.getMessage());
+        }
+    }
+
+    public static void saveAdmin(Connection conn, byte[] fidData, String name, String surname, String idNum) {
+        String sql = "INSERT INTO Admins (FINGERPRINT, NAME, SURNAME, ID_NUMBER) VALUES (?, ?, ?, ?)";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setBytes(1, fidData);
+            stmt.setString(2, name);
+            stmt.setString(3, surname);
+            stmt.setString(4, idNum);
+            stmt.executeUpdate();
+            System.out.println("🧩 Fingerprint and admin details saved to database.");
         } catch (SQLException e) {
             System.out.println("❌ Error saving fingerprint: " + e.getMessage());
         }
@@ -42,6 +57,27 @@ public class AdminDatabaseLogic {
         return voters;
     }
 
+    // Retrieve all admins
+    public static List<Vector<Object>> getAllAdmins(Connection conn) {
+        String sql = "SELECT NAME, SURNAME, ID_NUMBER, FINGERPRINT FROM Admins";
+        List<Vector<Object>> admins = new ArrayList<>();
+
+        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                Vector<Object> row = new Vector<>();
+                row.add(rs.getString("NAME"));
+                row.add(rs.getString("SURNAME"));
+                row.add(rs.getString("ID_NUMBER"));
+                row.add(rs.getBytes("FINGERPRINT") != null ? "✅" : "");
+                admins.add(row);
+            }
+        } catch (SQLException e) {
+            System.err.println("❌ Error retrieving admins: " + e.getMessage());
+        }
+
+        return admins;
+    }
+
     // Delete voter
     public static boolean deleteVoter(Connection conn, String idNumber) {
         String sql = "DELETE FROM VOTERS WHERE ID_NUMBER = ?";
@@ -50,6 +86,22 @@ public class AdminDatabaseLogic {
             return stmt.executeUpdate() > 0;
         } catch (SQLException e) {
             System.err.println("❌ Error deleting voter: " + e.getMessage());
+            return false;
+        }
+    }
+
+    // Delete admin
+    public static boolean deleteAdmin(Connection conn, String idNumber) {
+        String sql = "DELETE FROM Admins WHERE ID_NUMBER = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, idNumber);
+            int rows = stmt.executeUpdate();
+            if (rows > 0) {
+                System.out.println("🗑 Deleted admin with ID " + idNumber);
+            }
+            return rows > 0;
+        } catch (SQLException e) {
+            System.err.println("❌ Error deleting admin: " + e.getMessage());
             return false;
         }
     }
