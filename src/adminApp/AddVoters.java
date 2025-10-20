@@ -8,14 +8,14 @@ import java.awt.event.ActionListener;
 import java.sql.Connection;
 import java.sql.SQLException;
 
-public class EnrollmentGUI extends JPanel implements ActionListener {
+public class AddVoters extends JPanel implements ActionListener {
 
     private static final long serialVersionUID = 1L;
 
     private CaptureThread m_capture;
     private Reader m_reader;
     private JDialog m_dlgParent;
-    private JLabel namelJLabel, surnameLabel, idLabel;
+    private JLabel nameLabel, surnameLabel, idLabel;
     private JTextField nameField, surnameField, idField;
     private JPanel buttonPanel;
     private JDialog fingerDialogue;
@@ -23,8 +23,9 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
     // ✅ Single persistent database connection
     private static Connection conn;
 
-    public EnrollmentGUI(Reader reader) {
+    public AddVoters(Reader reader, Connection connection) {
         this.m_reader = reader;
+        conn = connection;
 
         // ✅ Initialize UI layout
         BoxLayout layout = new BoxLayout(this, BoxLayout.Y_AXIS);
@@ -34,14 +35,14 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
         add(Box.createVerticalStrut(10));
 
         // --- Input fields ---
-        namelJLabel = new JLabel("Enter Name");
+        nameLabel = new JLabel("Enter Name");
         nameField = new JTextField(20);
         surnameLabel = new JLabel("Enter Surname");
         surnameField = new JTextField(20);
         idLabel = new JLabel("Enter ID Number");
         idField = new JTextField(20);
 
-        add(namelJLabel);
+        add(nameLabel);
         add(nameField);
         add(surnameLabel);
         add(surnameField);
@@ -53,12 +54,12 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
 
         JButton btnBack = new JButton("⬅ Back");
         btnBack.addActionListener(e -> {
-            StopCaptureThread();
+            stopCaptureThread();
             if (m_dlgParent != null) m_dlgParent.dispose();
         });
 
         JButton btnCapture = new JButton("🖐 Capture Fingerprint");
-        btnCapture.addActionListener(e -> captureFingerPrint());
+        btnCapture.addActionListener(e -> captureFingerprint());
 
         buttonPanel.add(btnCapture);
         buttonPanel.add(btnBack);
@@ -68,38 +69,34 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
     }
 
     // ---------------------- CAPTURE THREAD HANDLING ----------------------
-    private void StartCaptureThread() {
-        if (m_reader == null) {
-            JOptionPane.showMessageDialog(this, "❌ No fingerprint reader detected!");
-            return;
+    private void stopCaptureThread() {
+        if (m_capture != null) {
+            try {
+                m_capture.cancel();
+                m_capture.join();
+                System.out.println("🧩 Capture thread stopped.");
+            } catch (InterruptedException e) {
+                System.err.println("⚠️ Interrupted while stopping capture: " + e.getMessage());
+            }
         }
 
-        m_capture = new CaptureThread(m_reader, false, Fid.Format.ANSI_381_2004,
-                Reader.ImageProcessing.IMG_PROC_DEFAULT);
-        m_capture.start(this);
-    }
-
-    private void StopCaptureThread() {
-        if (m_capture != null) {
-            m_capture.cancel();
-        }
-    }
-
-    private void WaitForCaptureThread() {
-        if (m_capture != null) {
-            m_capture.join(1000);
+        if (m_reader != null) {
+            try {
+                m_reader.Close();
+                System.out.println("🔒 Reader closed.");
+            } catch (UareUException ignored) {
+            }
         }
     }
 
     // ---------------------- FINGERPRINT CAPTURE ----------------------
-    private void captureFingerPrint() {
+    private void captureFingerprint() {
         try {
             if (m_reader == null) {
                 JOptionPane.showMessageDialog(this, "❌ No fingerprint reader detected!");
                 return;
             }
 
-            // Open the reader when capture starts
             try {
                 m_reader.Open(Reader.Priority.COOPERATIVE);
                 System.out.println("✅ Reader opened successfully.");
@@ -110,7 +107,7 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
 
             // Show capture dialog
             fingerDialogue = new JDialog((Frame) null, "Fingerprint Capture", false);
-            fingerDialogue.setSize(250, 100);
+            fingerDialogue.setSize(300, 100);
             fingerDialogue.setLocationRelativeTo(null);
             fingerDialogue.add(new JLabel("Place your finger on the scanner...", SwingConstants.CENTER));
             fingerDialogue.setVisible(true);
@@ -132,22 +129,12 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
                                 surnameField.getText().trim(),
                                 idField.getText().trim()
                         );
-
-                        fingerDialogue.dispose();
-                        JOptionPane.showMessageDialog(this, "✅ Voter fingerprint and info saved successfully!");
-                        StopCaptureThread();
-
-                        try {
-                            m_reader.Close();
-                            System.out.println("🔒 Reader closed.");
-                        } catch (UareUException ignored) {
-                        }
-
-                        if (m_dlgParent != null) m_dlgParent.dispose();
-
                     } else {
                         JOptionPane.showMessageDialog(this, "❌ Poor quality. Please try again.");
                     }
+
+                    fingerDialogue.dispose();
+                    stopCaptureThread();
                 }
             });
 
@@ -164,23 +151,18 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
 
         m_dlgParent = dlgParent;
 
-        // Reader not opened yet — will open when capture button is pressed
         m_dlgParent.setContentPane(this);
         m_dlgParent.pack();
         m_dlgParent.setLocationRelativeTo(null);
         m_dlgParent.toFront();
         m_dlgParent.setVisible(true);
-
-        WaitForCaptureThread();
     }
 
-    // ---------------------- RUN FROM DASHBOARD ----------------------
-    public static void Run(Reader reader) {
+    public static void Run(Reader reader, Connection connection) {
         try {
-            // ✅ Connect to DB only once
-            if (conn == null || conn.isClosed()) {
-                conn = Database.getConnection();
-                if (conn != null) {
+            if (connection == null || connection.isClosed()) {
+                connection = Database.getConnection();
+                if (connection != null) {
                     System.out.println("✅ Database connection established successfully!");
                 } else {
                     System.out.println("❌ Failed to establish database connection!");
@@ -188,7 +170,8 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
                 }
             }
 
-            // Initialize reader collection
+            conn = connection;
+
             ReaderCollection collection = UareUGlobal.GetReaderCollection();
             collection.GetReaders();
 
@@ -197,7 +180,7 @@ public class EnrollmentGUI extends JPanel implements ActionListener {
                 System.out.println("🖐 Using reader: " + selectedReader.GetDescription().name);
 
                 JDialog dlg = new JDialog((Frame) null, "Voter Enrollment", true);
-                EnrollmentGUI gui = new EnrollmentGUI(selectedReader);
+                AddVoters gui = new AddVoters(selectedReader, conn);
                 gui.doModal(dlg);
             } else {
                 JOptionPane.showMessageDialog(null, "❌ No fingerprint readers found!");

@@ -4,6 +4,7 @@ import com.digitalpersona.uareu.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.ActionListener;
 import java.sql.Connection;
 import java.util.List;
 import java.util.Vector;
@@ -25,18 +26,18 @@ public class AdminDashboard extends JFrame {
     private DefaultTableModel statsModel;
 
     private Connection conn;
+    private JLabel header;
 
-    public AdminDashboard() {
+    public AdminDashboard(Connection connection) {
+        this.conn = connection;
+
         setTitle("🗳 Voting Machine Admin Dashboard");
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         getContentPane().setBackground(new Color(0, 87, 183));
         setLayout(new BorderLayout());
 
-        conn = Database.getConnection();
-        System.out.println("✅ Connected to MySQL database.");
-
-        JLabel header = new JLabel("Voting Machine Admin Dashboard", SwingConstants.CENTER);
+        header = new JLabel("Voting Machine Admin Dashboard", SwingConstants.CENTER);
         header.setFont(new Font("Segoe UI", Font.BOLD, 26));
         header.setForeground(Color.WHITE);
         header.setBorder(BorderFactory.createEmptyBorder(15, 0, 15, 0));
@@ -78,6 +79,10 @@ public class AdminDashboard extends JFrame {
 
         loadCandidates();
         cardLayout.show(mainPanel, "CANDIDATES");
+    }
+
+    public void setAdminInfo(String name, String surname) {
+        header.setText("Voting Machine Admin Dashboard — Logged in as: " + name + " " + surname);
     }
 
     private JButton createNavButton(String title) {
@@ -171,29 +176,156 @@ public class AdminDashboard extends JFrame {
     }
 
     private void addCandidate() {
-        JTextField partyField = new JTextField();
-        JTextField nameField = new JTextField();
+        // Radio buttons for candidate type
+        JRadioButton partySupportedBtn = new JRadioButton("Party Supported");
+        JRadioButton independentBtn = new JRadioButton("Independent");
+        ButtonGroup candidateTypeGroup = new ButtonGroup();
+        candidateTypeGroup.add(partySupportedBtn);
+        candidateTypeGroup.add(independentBtn);
+        partySupportedBtn.setSelected(true);
 
-        JCheckBox nationalBox = new JCheckBox("National", true);
+        // Input fields
+        JTextField partyField = new JTextField();
+        JTextField candidateNameField = new JTextField();
+
+        // Dropdowns for regions and provinces
+        String[] regions = {
+            "Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape",
+            "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape"
+        };
+        String[] provinces = {
+            "Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape",
+            "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape"
+        };
+
+        JComboBox<String> regionDropdown = new JComboBox<>(regions);
+        JComboBox<String> provinceDropdown = new JComboBox<>(provinces);
+
+        // Ballot checkboxes
+        JCheckBox nationalBox = new JCheckBox("National");
         JCheckBox regionalBox = new JCheckBox("Regional");
         JCheckBox provincialBox = new JCheckBox("Provincial");
 
+        // Image selection
+        JButton partyLogoButton = new JButton("Select Party Logo");
+        JButton candidateFaceButton = new JButton("Select Candidate Face");
+        JLabel partyLogoLabel = new JLabel("No image selected");
+        JLabel candidateFaceLabel = new JLabel("No image selected");
+        final byte[][] partyLogoData = new byte[1][1];
+        final byte[][] candidateFaceData = new byte[1][1];
+
+        partyLogoButton.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                try {
+                    java.io.File file = chooser.getSelectedFile();
+                    partyLogoData[0] = java.nio.file.Files.readAllBytes(file.toPath());
+                    partyLogoLabel.setText(file.getName() + " selected");
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this, "❌ Failed to read party logo: " + ex.getMessage());
+                }
+            }
+        });
+
+        candidateFaceButton.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                try {
+                    java.io.File file = chooser.getSelectedFile();
+                    candidateFaceData[0] = java.nio.file.Files.readAllBytes(file.toPath());
+                    candidateFaceLabel.setText(file.getName() + " selected");
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this, "❌ Failed to read candidate image: " + ex.getMessage());
+                }
+            }
+        });
+
+        // Panel layout
         JPanel panel = new JPanel(new GridLayout(0, 1));
-        panel.add(new JLabel("Party Name:"));
+        panel.add(partySupportedBtn);
+        panel.add(independentBtn);
+
+        panel.add(new JLabel("Party Abbreviation/Independent Name:"));
         panel.add(partyField);
+
         panel.add(new JLabel("Candidate Name:"));
-        panel.add(nameField);
+        panel.add(candidateNameField);
+
         panel.add(new JLabel("Select Ballots:"));
         panel.add(nationalBox);
         panel.add(regionalBox);
         panel.add(provincialBox);
 
-        if (JOptionPane.showConfirmDialog(this, panel, "Add Candidate",
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
+        // Region/Province dropdowns
+        panel.add(new JLabel("Region:"));
+        panel.add(regionDropdown);
+        panel.add(new JLabel("Province:"));
+        panel.add(provinceDropdown);
 
-            boolean added = AdminDatabaseLogic.addCandidateToBallots(conn,
-                    partyField.getText(), nameField.getText(),
-                    nationalBox.isSelected(), regionalBox.isSelected(), provincialBox.isSelected());
+        // Image selectors
+        panel.add(partyLogoButton);
+        panel.add(partyLogoLabel);
+        panel.add(candidateFaceButton);
+        panel.add(candidateFaceLabel);
+
+        // Dynamic visibility logic
+        ActionListener toggleFields = e -> {
+            boolean isParty = partySupportedBtn.isSelected();
+            partyField.setVisible(isParty);
+            partyLogoButton.setVisible(isParty);
+            partyLogoLabel.setVisible(isParty);
+
+            candidateFaceButton.setVisible(true);
+            candidateFaceLabel.setVisible(true);
+
+            regionDropdown.setVisible(regionalBox.isSelected());
+            provinceDropdown.setVisible(provincialBox.isSelected());
+
+            panel.revalidate();
+            panel.repaint();
+        };
+
+        partySupportedBtn.addActionListener(toggleFields);
+        independentBtn.addActionListener(toggleFields);
+        regionalBox.addActionListener(toggleFields);
+        provincialBox.addActionListener(toggleFields);
+
+        // Initialize visibility
+        toggleFields.actionPerformed(null);
+
+        // Show dialog
+        int result = JOptionPane.showConfirmDialog(this, panel, "Add Candidate",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            if (candidateFaceData[0] == null || candidateFaceData[0].length == 0) {
+                JOptionPane.showMessageDialog(this, "⚠️ You must select a candidate image.");
+                return;
+            }
+
+            String partyName = partySupportedBtn.isSelected() ? partyField.getText().trim() : "";
+            String candidateName = candidateNameField.getText().trim();
+
+            String value = "";
+            if (regionalBox.isSelected()) {
+                value = regionDropdown.getSelectedItem().toString();
+            } else if (provincialBox.isSelected()) {
+                value = provinceDropdown.getSelectedItem().toString();
+            }
+
+            // Fix: call updated method with 10 parameters
+            boolean added = AdminDatabaseLogic.addCandidateToBallots(
+                    conn,
+                    partyName,
+                    candidateName,
+                    nationalBox.isSelected(),
+                    regionalBox.isSelected(),
+                    provincialBox.isSelected(),
+                    candidateFaceData[0], // candidate image
+                    partyLogoData[0], // party logo (null if independent)
+                    !partySupportedBtn.isSelected(), // isIndependent
+                    value
+            );
 
             if (added) {
                 loadCandidates();
@@ -209,11 +341,25 @@ public class AdminDashboard extends JFrame {
             JOptionPane.showMessageDialog(this, "⚠️ Please select a candidate to delete.");
             return;
         }
+
+        String partyName = (String) candidateModel.getValueAt(selectedRow, 0);
         String candidateName = (String) candidateModel.getValueAt(selectedRow, 1);
-        if (AdminDatabaseLogic.deleteCandidateFromTable(conn, currentTable, candidateName)) {
-            loadCandidates();
-        } else {
-            JOptionPane.showMessageDialog(this, "❌ Failed to delete candidate");
+
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to delete candidate \"" + candidateName + "\" and all their votes?",
+                "Confirm Deletion",
+                JOptionPane.YES_NO_OPTION
+        );
+
+        if (confirm == JOptionPane.YES_OPTION) {
+            boolean deleted = AdminDatabaseLogic.deleteCandidateFromTable(conn, currentTable, partyName, candidateName);
+            if (deleted) {
+                JOptionPane.showMessageDialog(this, "✅ Candidate and related votes deleted successfully.");
+                loadCandidates();
+            } else {
+                JOptionPane.showMessageDialog(this, "❌ Failed to delete candidate or votes.");
+            }
         }
     }
 
@@ -242,7 +388,7 @@ public class AdminDashboard extends JFrame {
                     return;
                 }
 
-                EnrollmentGUI.Run(reader);
+                AddVoters.Run(reader, conn);
                 loadVoters();
 
                 UareUGlobal.DestroyReaderCollection();
@@ -309,9 +455,5 @@ public class AdminDashboard extends JFrame {
         if (AdminDatabaseLogic.deleteVoter(conn, idNumber)) {
             loadVoters();
         }
-    }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new AdminDashboard().setVisible(true));
     }
 }
