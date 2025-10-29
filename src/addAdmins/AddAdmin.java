@@ -2,7 +2,7 @@ package addAdmins;
 
 import adminApp.AdminDatabaseLogic;
 import adminApp.CaptureThread;
-import adminApp.Database;
+import adminApp.AdminDatabaseConnectivity;
 import com.digitalpersona.uareu.*;
 
 import javax.swing.*;
@@ -22,7 +22,7 @@ public class AddAdmin extends JPanel implements ActionListener {
     private JPanel buttonPanel;
     private JDialog fingerDialogue;
 
-    // Database connection (kept open for this session)
+    // AdminDatabaseConnectivity connection (kept open for this session)
     private static Connection conn;
 
     public AddAdmin(Reader reader) {
@@ -174,7 +174,7 @@ public class AddAdmin extends JPanel implements ActionListener {
     public static void main(String[] args) {
         try {
             // ✅ Connect to database immediately at startup
-            conn = Database.getConnection();
+            conn = AdminDatabaseConnectivity.getConnection();
             if (conn != null) {
                 System.out.println("✅ Database connection established successfully!");
             } else {

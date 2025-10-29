@@ -161,7 +161,7 @@ public class AddVoters extends JPanel implements ActionListener {
     public static void Run(Reader reader, Connection connection) {
         try {
             if (connection == null || connection.isClosed()) {
-                connection = Database.getConnection();
+                connection = AdminDatabaseConnectivity.getConnection();
                 if (connection != null) {
                     System.out.println("✅ Database connection established successfully!");
                 } else {

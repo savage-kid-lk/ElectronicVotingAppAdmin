@@ -5,9 +5,9 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 
 /**
- * Database connection class for MySQL (Railway).
+ * AdminDatabaseConnectivity connection class for MySQL (Railway).
  */
-public class Database {
+public class AdminDatabaseConnectivity {
 
     private static final String URL = "jdbc:mysql://shortline.proxy.rlwy.net:36648/railway";
     private static final String USER = "root";
