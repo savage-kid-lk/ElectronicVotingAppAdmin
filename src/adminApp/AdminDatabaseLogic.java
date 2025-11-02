@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Vector;
 import javax.swing.JOptionPane;
+import com.digitalpersona.uareu.*;
 
 public class AdminDatabaseLogic {
 
@@ -21,21 +22,37 @@ public class AdminDatabaseLogic {
         if (id == null || !id.matches("\\d{13}")) {
             return false;
         }
+
         String birth = id.substring(0, 6);
-        try {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyMMdd");
-            LocalDate date = LocalDate.parse(birth, formatter);
-            if (date.isAfter(LocalDate.now())) {
-                return false;
-            }
-        } catch (DateTimeParseException e) {
+        LocalDate dateOfBirth = parseSouthAfricanIDDate(birth);
+        if (dateOfBirth == null || dateOfBirth.isAfter(LocalDate.now())) {
             return false;
         }
+
         char citizenship = id.charAt(10);
         if (citizenship != '0' && citizenship != '1') {
             return false;
         }
+
         return luhnCheck(id);
+    }
+
+    private static LocalDate parseSouthAfricanIDDate(String birth) {
+        try {
+            int year = Integer.parseInt(birth.substring(0, 2));
+            int month = Integer.parseInt(birth.substring(2, 4));
+            int day = Integer.parseInt(birth.substring(4, 6));
+
+            // Determine century manually
+            int currentYearTwoDigits = LocalDate.now().getYear() % 100;
+            int century = (year > currentYearTwoDigits) ? 1900 : 2000;
+
+            int fullYear = century + year;
+
+            return LocalDate.of(fullYear, month, day);
+        } catch (Exception e) {
+            return null; // Invalid date
+        }
     }
 
     private static boolean luhnCheck(String id) {
@@ -140,6 +157,7 @@ public class AdminDatabaseLogic {
     }
 
     public static List<Vector<Object>> getAllVoters(Connection conn) {
+        conn = AdminDatabaseConnectivity.getValidatedConnection();
         List<Vector<Object>> voters = new ArrayList<>();
         String sql = "SELECT NAME, SURNAME, ID_NUMBER, FINGERPRINT, has_voted FROM VOTERS";
         try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
@@ -148,8 +166,8 @@ public class AdminDatabaseLogic {
                 row.add(rs.getString("NAME"));
                 row.add(rs.getString("SURNAME"));
                 row.add(rs.getString("ID_NUMBER"));
-                row.add(rs.getBytes("FINGERPRINT") != null ? "✅" : "");
-                row.add(rs.getBoolean("has_voted") ? "✅" : "❌");
+                row.add(rs.getBytes("FINGERPRINT") != null ? "Captured" : "Not Captured");
+                row.add(rs.getBoolean("has_voted") ? "Yes" : "No");
                 voters.add(row);
             }
         } catch (SQLException e) {
@@ -158,23 +176,204 @@ public class AdminDatabaseLogic {
         return voters;
     }
 
+    // ✅ ADVANCED SEARCH: Search voters with comprehensive Google-like search
+    public static List<Vector<Object>> searchVoters(Connection conn, String searchTerm) {
+        conn = AdminDatabaseConnectivity.getValidatedConnection();
+        List<Vector<Object>> voters = new ArrayList<>();
+        
+        if (searchTerm == null || searchTerm.trim().isEmpty()) {
+            return getAllVoters(conn);
+        }
+        
+        String cleanSearch = searchTerm.trim().toLowerCase();
+        String sql = "SELECT NAME, SURNAME, ID_NUMBER, FINGERPRINT, has_voted FROM VOTERS " +
+                    "WHERE LOWER(NAME) LIKE ? OR LOWER(SURNAME) LIKE ? OR ID_NUMBER LIKE ? OR " +
+                    "LOWER(CONCAT(NAME, ' ', SURNAME)) LIKE ? OR LOWER(CONCAT(SURNAME, ' ', NAME)) LIKE ? OR " +
+                    "LOWER(CONCAT(NAME, SURNAME)) LIKE ? OR LOWER(CONCAT(SURNAME, NAME)) LIKE ? OR " +
+                    "(has_voted = ? AND ? = 'voted') OR (has_voted = ? AND ? = 'not voted') OR " +
+                    "(has_voted = ? AND ? = 'yes') OR (has_voted = ? AND ? = 'no') OR " +
+                    "LOWER(NAME) LIKE ? OR LOWER(SURNAME) LIKE ? OR " +
+                    "LOWER(ID_NUMBER) LIKE ?";
+        
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            String searchPattern = "%" + cleanSearch + "%";
+            String[] terms = cleanSearch.split("\\s+");
+            
+            // Set basic search patterns
+            for (int i = 1; i <= 7; i++) {
+                stmt.setString(i, searchPattern);
+            }
+            
+            // Handle voting status
+            boolean isVoted = cleanSearch.equals("voted") || cleanSearch.equals("yes");
+            boolean isNotVoted = cleanSearch.equals("not voted") || cleanSearch.equals("no");
+            
+            stmt.setBoolean(8, true);
+            stmt.setString(9, cleanSearch);
+            stmt.setBoolean(10, false);
+            stmt.setString(11, cleanSearch);
+            stmt.setBoolean(12, true);
+            stmt.setString(13, cleanSearch);
+            stmt.setBoolean(14, false);
+            stmt.setString(15, cleanSearch);
+            
+            // Handle multi-word searches
+            if (terms.length >= 2) {
+                stmt.setString(16, "%" + terms[0] + "%");
+                stmt.setString(17, "%" + terms[1] + "%");
+                stmt.setString(18, "%" + cleanSearch + "%");
+            } else {
+                stmt.setString(16, searchPattern);
+                stmt.setString(17, searchPattern);
+                stmt.setString(18, searchPattern);
+            }
+            
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Vector<Object> row = new Vector<>();
+                    row.add(rs.getString("NAME"));
+                    row.add(rs.getString("SURNAME"));
+                    row.add(rs.getString("ID_NUMBER"));
+                    row.add(rs.getBytes("FINGERPRINT") != null ? "Captured" : "Not Captured");
+                    row.add(rs.getBoolean("has_voted") ? "Yes" : "No");
+                    voters.add(row);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Search error: " + e.getMessage());
+        }
+        return voters;
+    }
+
+    // ✅ ADVANCED SEARCH: Search candidates across all ballots
+    public static List<Vector<Object>> searchCandidates(Connection conn, String searchTerm) {
+        List<Vector<Object>> allCandidates = new ArrayList<>();
+        
+        if (searchTerm == null || searchTerm.trim().isEmpty()) {
+            // Return empty list for empty search, let the UI handle loading all
+            return allCandidates;
+        }
+        
+        String cleanSearch = searchTerm.trim().toLowerCase();
+        String searchPattern = "%" + cleanSearch + "%";
+        
+        // Search in NationalBallot
+        String nationalSql = "SELECT party_name, candidate_name, 'National' as ballot_type, " +
+                           "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = nb.party_name AND category = 'National'), 0) as votes " +
+                           "FROM NationalBallot nb " +
+                           "WHERE LOWER(party_name) LIKE ? OR LOWER(candidate_name) LIKE ? OR " +
+                           "LOWER(CONCAT(party_name, ' ', candidate_name)) LIKE ? OR " +
+                           "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
+        
+        // Search in RegionalBallot
+        String regionalSql = "SELECT party_name, candidate_name, CONCAT('Regional - ', region) as ballot_type, " +
+                           "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = rb.party_name AND category = 'Regional'), 0) as votes " +
+                           "FROM RegionalBallot rb " +
+                           "WHERE LOWER(party_name) LIKE ? OR LOWER(candidate_name) LIKE ? OR " +
+                           "LOWER(region) LIKE ? OR " +
+                           "LOWER(CONCAT(party_name, ' ', candidate_name)) LIKE ? OR " +
+                           "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
+        
+        // Search in ProvincialBallot
+        String provincialSql = "SELECT party_name, candidate_name, CONCAT('Provincial - ', province) as ballot_type, " +
+                             "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = pb.party_name AND category = 'Provincial'), 0) as votes " +
+                             "FROM ProvincialBallot pb " +
+                             "WHERE LOWER(party_name) LIKE ? OR LOWER(candidate_name) LIKE ? OR " +
+                             "LOWER(province) LIKE ? OR " +
+                             "LOWER(CONCAT(party_name, ' ', candidate_name)) LIKE ? OR " +
+                             "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
+        
+        try {
+            // Search National
+            try (PreparedStatement stmt = conn.prepareStatement(nationalSql)) {
+                for (int i = 1; i <= 4; i++) {
+                    stmt.setString(i, searchPattern);
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Vector<Object> row = new Vector<>();
+                        row.add(rs.getString("party_name"));
+                        row.add(rs.getString("candidate_name"));
+                        row.add(rs.getString("ballot_type"));
+                        row.add(rs.getInt("votes"));
+                        allCandidates.add(row);
+                    }
+                }
+            }
+            
+            // Search Regional
+            try (PreparedStatement stmt = conn.prepareStatement(regionalSql)) {
+                for (int i = 1; i <= 5; i++) {
+                    stmt.setString(i, searchPattern);
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Vector<Object> row = new Vector<>();
+                        row.add(rs.getString("party_name"));
+                        row.add(rs.getString("candidate_name"));
+                        row.add(rs.getString("ballot_type"));
+                        row.add(rs.getInt("votes"));
+                        allCandidates.add(row);
+                    }
+                }
+            }
+            
+            // Search Provincial
+            try (PreparedStatement stmt = conn.prepareStatement(provincialSql)) {
+                for (int i = 1; i <= 5; i++) {
+                    stmt.setString(i, searchPattern);
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        Vector<Object> row = new Vector<>();
+                        row.add(rs.getString("party_name"));
+                        row.add(rs.getString("candidate_name"));
+                        row.add(rs.getString("ballot_type"));
+                        row.add(rs.getInt("votes"));
+                        allCandidates.add(row);
+                    }
+                }
+            }
+            
+        } catch (SQLException e) {
+            System.err.println("Candidate search error: " + e.getMessage());
+        }
+        
+        return allCandidates;
+    }
+
+    // Update voter fingerprint
+    public static boolean updateVoterFingerprint(Connection conn, String idNumber, byte[] fingerprintData) {
+        conn = AdminDatabaseConnectivity.getValidatedConnection();
+        String sql = "UPDATE VOTERS SET FINGERPRINT = ? WHERE ID_NUMBER = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setBytes(1, fingerprintData);
+            stmt.setString(2, idNumber);
+            int rowsAffected = stmt.executeUpdate();
+            return rowsAffected > 0;
+        } catch (SQLException e) {
+            System.err.println("Error updating fingerprint: " + e.getMessage());
+            return false;
+        }
+    }
     // ✅ ENHANCED: Delete voter and ALL associated data completely
     public static boolean deleteVoter(Connection conn, String idNumber) {
+        conn = AdminDatabaseConnectivity.getValidatedConnection();
         try {
             conn.setAutoCommit(false); // Start transaction
-            
+
             // Show confirmation dialog with warning about complete data removal
             int confirm = JOptionPane.showConfirmDialog(null,
-                    "<html><b>WARNING: This will permanently delete ALL data for this voter:</b><br><br>" +
-                    "• Voter registration details<br>" +
-                    "• All votes cast by this voter<br>" +
-                    "• All fraud attempts recorded for this voter<br><br>" +
-                    "This action cannot be undone!<br><br>" +
-                    "Are you sure you want to proceed?</html>",
+                    "<html><b>WARNING: This will permanently delete ALL data for this voter:</b><br><br>"
+                    + "• Voter registration details<br>"
+                    + "• All votes cast by this voter<br>"
+                    + "• All fraud attempts recorded for this voter<br><br>"
+                    + "This action cannot be undone!<br><br>"
+                    + "Are you sure you want to proceed?</html>",
                     "Confirm Complete Voter Deletion",
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
-            
+
             if (confirm != JOptionPane.YES_OPTION) {
                 conn.setAutoCommit(true);
                 return false;
@@ -206,22 +405,22 @@ public class AdminDatabaseLogic {
             try (PreparedStatement stmt = conn.prepareStatement(deleteVoterSql)) {
                 stmt.setString(1, idNumber);
                 int voterDeleted = stmt.executeUpdate();
-                
+
                 if (voterDeleted > 0) {
                     totalRecordsDeleted += voterDeleted;
                     // Commit the transaction
                     conn.commit();
-                    
-                    System.out.println("✅ Successfully deleted voter " + idNumber + 
-                                     " and " + totalRecordsDeleted + " associated records");
-                    
+
+                    System.out.println("✅ Successfully deleted voter " + idNumber
+                            + " and " + totalRecordsDeleted + " associated records");
+
                     JOptionPane.showMessageDialog(null,
-                            "<html><b>✅ Voter completely deleted!</b><br><br>" +
-                            "Removed from system:<br>" +
-                            "• Voter registration<br>" +
-                            "• All associated votes<br>" +
-                            "• All fraud attempt records<br><br>" +
-                            "Total records removed: " + totalRecordsDeleted + "</html>");
+                            "<html><b>✅ Voter completely deleted!</b><br><br>"
+                            + "Removed from system:<br>"
+                            + "• Voter registration<br>"
+                            + "• All associated votes<br>"
+                            + "• All fraud attempt records<br><br>"
+                            + "Total records removed: " + totalRecordsDeleted + "</html>");
                     return true;
                 } else {
                     // No voter found, rollback
@@ -255,16 +454,16 @@ public class AdminDatabaseLogic {
 
             // Show confirmation dialog
             int confirm = JOptionPane.showConfirmDialog(null,
-                    "<html>Reset voting status for voter " + idNumber + "?<br><br>" +
-                    "This will:<br>" +
-                    "• Set has_voted to FALSE<br>" +
-                    "• Delete all votes cast by this voter<br>" +
-                    "• Allow the voter to vote again<br><br>" +
-                    "Are you sure?</html>",
+                    "<html>Reset voting status for voter " + idNumber + "?<br><br>"
+                    + "This will:<br>"
+                    + "• Set has_voted to FALSE<br>"
+                    + "• Delete all votes cast by this voter<br>"
+                    + "• Allow the voter to vote again<br><br>"
+                    + "Are you sure?</html>",
                     "Confirm Reset Voting Status",
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.QUESTION_MESSAGE);
-            
+
             if (confirm != JOptionPane.YES_OPTION) {
                 conn.setAutoCommit(true);
                 return false;
@@ -283,12 +482,12 @@ public class AdminDatabaseLogic {
             try (PreparedStatement stmt = conn.prepareStatement(resetVoterSql)) {
                 stmt.setString(1, idNumber);
                 int rowsAffected = stmt.executeUpdate();
-                
+
                 if (rowsAffected > 0) {
                     conn.commit(); // Commit transaction
                     JOptionPane.showMessageDialog(null,
-                            "<html><b>✅ Voting status reset successfully!</b><br><br>" +
-                            "Voter " + idNumber + " can now vote again as a new voter.</html>");
+                            "<html><b>✅ Voting status reset successfully!</b><br><br>"
+                            + "Voter " + idNumber + " can now vote again as a new voter.</html>");
                     return true;
                 } else {
                     conn.rollback();
@@ -342,7 +541,7 @@ public class AdminDatabaseLogic {
                 success |= added;
                 anyAdded |= added;
             }
-            
+
             if (anyAdded) {
                 JOptionPane.showMessageDialog(null, "✅ Candidate added successfully!");
             } else {

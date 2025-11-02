@@ -7,9 +7,12 @@ import java.sql.Connection;
 
 public class AdminLogin extends JFrame {
 
-    private Connection conn = AdminDatabaseConnectivity.getConnection();;
+    private Connection conn;
+    private JButton loginButton;
+    private JLabel connectionStatus;
 
     public AdminLogin() {
+        this.conn = AdminDatabaseConnectivity.getConnection();
 
         setTitle("Admin Login");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -20,75 +23,100 @@ public class AdminLogin extends JFrame {
         mainPanel.setBackground(new Color(0, 87, 183));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(20, 20, 20, 20);
+        gbc.gridx = 0;
 
+// === LOGO ===
+        ImageIcon logo = new ImageIcon(getClass().getResource("/IEC LOGO.png"));
+        Image scaledImage = logo.getImage().getScaledInstance(250, 250, Image.SCALE_SMOOTH);
+        ImageIcon scaledLogo = new ImageIcon(scaledImage);
+        JLabel logoLabel = new JLabel(scaledLogo);
+
+        gbc.gridy = 0;
+        mainPanel.add(logoLabel, gbc);
+
+// === WELCOME TEXT ===
+        gbc.gridy = 1;
         JLabel welcomeLabel = new JLabel(
-                "<html><center>Admin Fingerprint Login<br>Electronic Voting System</center></html>",
+                "<html><center>Admin Login<br>Electronic Voting System</center></html>",
                 SwingConstants.CENTER);
         welcomeLabel.setFont(new Font("Segoe UI", Font.BOLD, 28));
         welcomeLabel.setForeground(Color.WHITE);
         mainPanel.add(welcomeLabel, gbc);
 
-        JButton loginButton = new JButton("Login");
+// === CONNECTION STATUS ===
+        gbc.gridy = 2;
+        loginButton = new JButton("Login");
         loginButton.setFont(new Font("Segoe UI", Font.BOLD, 20));
         loginButton.setBackground(new Color(255, 209, 0));
         loginButton.setPreferredSize(new Dimension(200, 55));
-
-        gbc.gridy = 1;
         mainPanel.add(loginButton, gbc);
-
         loginButton.addActionListener(e -> {
             loginButton.setEnabled(false);
 
+            // Force reconnection before attempting login
+            AdminDatabaseConnectivity.forceReconnection();
+
+            if (AdminDatabaseConnectivity.isConnectionLost()) {
+                JOptionPane.showMessageDialog(AdminLogin.this,
+                        "❌ Cannot connect to database. Please check your internet connection and try again.",
+                        "Connection Error",
+                        JOptionPane.ERROR_MESSAGE);
+                loginButton.setEnabled(true);
+                return;
+            }
+
             JDialog scanDialog = createScanDialog();
-            
+
             // Start verification in separate thread
             new Thread(() -> {
                 SwingUtilities.invokeLater(() -> {
                     scanDialog.setVisible(true);
                 });
-                
+
                 try {
                     ReaderCollection readers = UareUGlobal.GetReaderCollection();
                     readers.GetReaders();
 
                     if (readers.size() > 0) {
                         Reader reader = readers.get(0);
-                        AdminVerification verification = new AdminVerification(reader, conn);
+                        // Use the reconnected connection
+                        Connection freshConn = AdminDatabaseConnectivity.getConnection();
+                        AdminVerification verification = new AdminVerification(reader, freshConn);
                         verification.startVerification((verified, adminName, adminSurname) -> {
                             SwingUtilities.invokeLater(() -> {
                                 scanDialog.dispose();
                                 loginButton.setEnabled(true);
                                 if (verified) {
-                                    // Pass the single connection to the dashboard
-                                    AdminDashboard dashboard = new AdminDashboard(conn);
+                                    // Pass the fresh connection to the dashboard
+                                    AdminDashboard dashboard = new AdminDashboard(freshConn, this);
                                     dashboard.setAdminInfo(adminName, adminSurname);
                                     dashboard.setVisible(true);
                                     dispose();
                                 } else {
-                                    JOptionPane.showMessageDialog(AdminLogin.this, 
-                                        "❌ Verification Failed - Access Denied", 
-                                        "Authentication Error", 
-                                        JOptionPane.ERROR_MESSAGE);
+                                    JOptionPane.showMessageDialog(AdminLogin.this,
+                                            "❌ Verification Failed - Access Denied",
+                                            "Authentication Error",
+                                            JOptionPane.ERROR_MESSAGE);
                                 }
                             });
                         });
                     } else {
                         SwingUtilities.invokeLater(() -> {
                             scanDialog.dispose();
-                            JOptionPane.showMessageDialog(AdminLogin.this, 
-                                "❌ No fingerprint reader found.", 
-                                "Hardware Error", 
-                                JOptionPane.ERROR_MESSAGE);
+                            JOptionPane.showMessageDialog(AdminLogin.this,
+                                    "❌ No fingerprint reader found.",
+                                    "Hardware Error",
+                                    JOptionPane.ERROR_MESSAGE);
                             loginButton.setEnabled(true);
                         });
                     }
                 } catch (UareUException ex) {
                     SwingUtilities.invokeLater(() -> {
                         scanDialog.dispose();
-                        JOptionPane.showMessageDialog(AdminLogin.this, 
-                            "❌ Error accessing fingerprint reader: " + ex.getMessage(),
-                            "Hardware Error", 
-                            JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(AdminLogin.this,
+                                "❌ Error accessing fingerprint reader: " + ex.getMessage(),
+                                "Hardware Error",
+                                JOptionPane.ERROR_MESSAGE);
                         loginButton.setEnabled(true);
                     });
                 }
@@ -96,6 +124,22 @@ public class AdminLogin extends JFrame {
         });
 
         add(mainPanel);
+    }
+
+    /**
+     * Show login window again when redirected from dashboard
+     */
+    public void showLoginAgain() {
+        SwingUtilities.invokeLater(() -> {
+            setVisible(true);
+            // Reset connection status and check current status
+            AdminDatabaseConnectivity.setConnectionLost(true);
+
+            JOptionPane.showMessageDialog(this,
+                    "🔁 Database connection was lost. Please login again.",
+                    "Session Expired",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
     }
 
     private JDialog createScanDialog() {
@@ -127,6 +171,9 @@ public class AdminLogin extends JFrame {
     }
 
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new AdminLogin().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            AdminLogin login = new AdminLogin();
+            login.setVisible(true);
+        });
     }
 }

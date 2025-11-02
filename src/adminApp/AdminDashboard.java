@@ -8,8 +8,11 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.sql.Connection;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Vector;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class AdminDashboard extends JFrame {
 
@@ -33,10 +36,101 @@ public class AdminDashboard extends JFrame {
     private Connection conn;
     private JLabel header;
     private JTextArea fraudReportsArea;
+    private AdminLogin loginWindow;
+    private Timer connectionMonitorTimer;
+    
+    // Search fields
+    private JTextField candidateSearchField;
+    private JTextField voterSearchField;
+    private JTextField statsSearchField;
 
-    public AdminDashboard(Connection connection) {
+    public AdminDashboard(Connection connection, AdminLogin loginWindow) {
         this.conn = connection;
+        this.loginWindow = loginWindow;
         initializeUI();
+        startConnectionMonitoring();
+    }
+
+    /**
+     * Start monitoring connection status
+     */
+    private void startConnectionMonitoring() {
+        connectionMonitorTimer = new Timer(true);
+        connectionMonitorTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                checkConnectionStatus();
+            }
+        }, 30000, 30000); // Check every 30 seconds
+    }
+
+    /**
+     * Check if connection is still valid
+     */
+    private void checkConnectionStatus() {
+        if (AdminDatabaseConnectivity.shouldRedirectToLogin()) {
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(AdminDashboard.this,
+                    "❌ Database connection lost. You will be redirected to login.",
+                    "Connection Timeout",
+                    JOptionPane.WARNING_MESSAGE);
+                redirectToLogin();
+            });
+        }
+    }
+
+    /**
+     * Redirect back to login window
+     */
+    private void redirectToLogin() {
+        if (connectionMonitorTimer != null) {
+            connectionMonitorTimer.cancel();
+        }
+        
+        // Close current window
+        dispose();
+        
+        // Show login window again
+        if (loginWindow != null) {
+            loginWindow.showLoginAgain();
+        } else {
+            // Fallback: create new login window
+            new AdminLogin().setVisible(true);
+        }
+    }
+
+    /**
+     * Enhanced database operations with connection checking
+     */
+    private boolean checkConnectionBeforeOperation() {
+        if (AdminDatabaseConnectivity.shouldRedirectToLogin()) {
+            JOptionPane.showMessageDialog(this,
+                "❌ Database connection lost. Please login again.",
+                "Connection Error",
+                JOptionPane.ERROR_MESSAGE);
+            redirectToLogin();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Handle database errors and redirect if connection is lost
+     */
+    private void handleDatabaseError(Exception e) {
+        System.err.println("Database error: " + e.getMessage());
+        
+        // Check if this is a connection timeout error
+        if (e.getMessage().contains("connection") || e.getMessage().contains("timeout") || 
+            e.getMessage().contains("closed")) {
+            AdminDatabaseConnectivity.setConnectionLost(true);
+            redirectToLogin();
+        } else {
+            JOptionPane.showMessageDialog(this,
+                "❌ Database error: " + e.getMessage(),
+                "Database Error",
+                JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void initializeUI() {
@@ -94,14 +188,17 @@ public class AdminDashboard extends JFrame {
         add(contentPanel, BorderLayout.CENTER);
 
         manageVotersBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
             loadVoters();
             cardLayout.show(mainPanel, "VOTERS");
         });
         manageCandidatesBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
             loadCandidates();
             cardLayout.show(mainPanel, "CANDIDATES");
         });
         viewStatisticsBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
             loadStats();
             cardLayout.show(mainPanel, "STATS");
         });
@@ -146,6 +243,7 @@ public class AdminDashboard extends JFrame {
                 boolean resolved = (boolean) fraudModel.getValueAt(row, 6);
                 
                 if (resolved) {
+                    if (!checkConnectionBeforeOperation()) return;
                     AdminDatabaseLogic.resolveFraudAttempt(conn, fraudId);
                 }
             }
@@ -156,19 +254,29 @@ public class AdminDashboard extends JFrame {
         
         JPanel buttonPanel = new JPanel();
         JButton refreshBtn = new JButton("🔄 Refresh Fraud Data");
-        refreshBtn.addActionListener(e -> loadFraudData());
+        refreshBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            loadFraudData();
+        });
         buttonPanel.add(refreshBtn);
         panel.add(buttonPanel, BorderLayout.SOUTH);
         
         return panel;
     }
+    
 
     private void loadFraudData() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         fraudModel.setRowCount(0);
         if (conn != null) {
-            List<Vector<Object>> fraudAttempts = AdminDatabaseLogic.getFraudAttempts(conn);
-            for (Vector<Object> row : fraudAttempts) {
-                fraudModel.addRow(row);
+            try {
+                List<Vector<Object>> fraudAttempts = AdminDatabaseLogic.getFraudAttempts(conn);
+                for (Vector<Object> row : fraudAttempts) {
+                    fraudModel.addRow(row);
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
             }
         }
     }
@@ -209,7 +317,10 @@ public class AdminDashboard extends JFrame {
         refreshFraudBtn.setForeground(Color.BLACK);
         refreshFraudBtn.setFocusPainted(false);
         refreshFraudBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        refreshFraudBtn.addActionListener(e -> refreshFraudReports());
+        refreshFraudBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            refreshFraudReports();
+        });
 
         JPanel buttonPanel = new JPanel();
         buttonPanel.setBackground(new Color(0, 87, 183));
@@ -223,6 +334,8 @@ public class AdminDashboard extends JFrame {
     }
 
     private void refreshFraudReports() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         StringBuilder reports = new StringBuilder();
         reports.append("=== Real-time Fraud Detection ===\n");
         reports.append("Last Updated: ").append(new java.util.Date()).append("\n\n");
@@ -258,6 +371,7 @@ public class AdminDashboard extends JFrame {
                     reports.append("✅ No fraud attempts detected.\n");
                 }
             } catch (Exception e) {
+                handleDatabaseError(e);
                 reports.append("❌ Error loading fraud data: ").append(e.getMessage()).append("\n");
             }
         } else {
@@ -284,12 +398,43 @@ public class AdminDashboard extends JFrame {
     private JPanel createCandidatePanel() {
         JPanel panel = new JPanel(new BorderLayout());
         
+        // ✅ ENHANCED: Search panel for candidates
+        JPanel searchPanel = new JPanel(new BorderLayout());
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        searchPanel.setBackground(Color.WHITE);
+        
+        JLabel searchLabel = new JLabel("🔍 Search Candidates:");
+        candidateSearchField = new JTextField(25);
+        candidateSearchField.setToolTipText("Search by party name, candidate name, region, or province. Examples: 'EFF', 'Cyril Ramaphosa', 'Gauteng'");
+        
+        JButton searchBtn = new JButton("Search");
+        JButton clearSearchBtn = new JButton("Clear");
+        JButton allCandidatesBtn = new JButton("Show All Ballots");
+        
+        searchBtn.addActionListener(e -> searchCandidates());
+        clearSearchBtn.addActionListener(e -> {
+            candidateSearchField.setText("");
+            loadCandidates();
+        });
+        allCandidatesBtn.addActionListener(e -> searchAllCandidates());
+        
+        JPanel searchButtonPanel = new JPanel();
+        searchButtonPanel.add(searchBtn);
+        searchButtonPanel.add(clearSearchBtn);
+        searchButtonPanel.add(allCandidatesBtn);
+        
+        searchPanel.add(searchLabel, BorderLayout.WEST);
+        searchPanel.add(candidateSearchField, BorderLayout.CENTER);
+        searchPanel.add(searchButtonPanel, BorderLayout.EAST);
+        
+        panel.add(searchPanel, BorderLayout.NORTH);
+        
         // Fixed category tabs - always visible
         categoryTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         addCategoryTab("NationalBallot");
         addCategoryTab("RegionalBallot");
         addCategoryTab("ProvincialBallot");
-        panel.add(categoryTabs, BorderLayout.NORTH);
+        panel.add(categoryTabs, BorderLayout.CENTER);
 
         String[] columns = {"Party", "Candidate", "Number of Votes"};
         candidateModel = new DefaultTableModel(columns, 0) {
@@ -305,6 +450,8 @@ public class AdminDashboard extends JFrame {
         // Listen for updates and push to DB
         candidateModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && conn != null) {
+                if (!checkConnectionBeforeOperation()) return;
+                
                 int row = e.getFirstRow();
                 int column = e.getColumn();
                 if (row >= 0 && (column == 0 || column == 1)) {
@@ -324,7 +471,11 @@ public class AdminDashboard extends JFrame {
                         regionOrProvince = candidateModel.getValueAt(row, 2).toString();
                     }
 
-                    AdminDatabaseLogic.updateCandidate(conn, currentTable, column, newValue, oldParty, oldCandidate, regionOrProvince);
+                    try {
+                        AdminDatabaseLogic.updateCandidate(conn, currentTable, column, newValue, oldParty, oldCandidate, regionOrProvince);
+                    } catch (Exception ex) {
+                        handleDatabaseError(ex);
+                    }
                 }
             }
         });
@@ -334,9 +485,18 @@ public class AdminDashboard extends JFrame {
         JButton deleteBtn = new JButton("🗑 Delete Candidate");
         JButton refreshBtn = new JButton("🔄 Refresh List");
 
-        addBtn.addActionListener(e -> addCandidate());
-        deleteBtn.addActionListener(e -> deleteCandidate());
-        refreshBtn.addActionListener(e -> loadCandidates());
+        addBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            addCandidate();
+        });
+        deleteBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            deleteCandidate();
+        });
+        refreshBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            loadCandidates();
+        });
 
         buttonPanel.add(addBtn);
         buttonPanel.add(deleteBtn);
@@ -344,6 +504,79 @@ public class AdminDashboard extends JFrame {
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         return panel;
+    }
+
+    // ✅ NEW: Search candidates across all ballots
+    private void searchAllCandidates() {
+        String searchTerm = candidateSearchField.getText().trim();
+        if (searchTerm.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "⚠️ Please enter a search term.");
+            return;
+        }
+
+        if (!checkConnectionBeforeOperation()) return;
+        
+        candidateModel.setRowCount(0);
+        if (conn != null) {
+            try {
+                List<Vector<Object>> candidates = AdminDatabaseLogic.searchCandidates(conn, searchTerm);
+                if (candidates.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "❌ No candidates found matching: " + searchTerm);
+                } else {
+                    // Change columns to include ballot type
+                    candidateModel.setColumnIdentifiers(new String[]{"Party", "Candidate", "Ballot Type", "Votes"});
+                    for (Vector<Object> row : candidates) {
+                        candidateModel.addRow(row);
+                    }
+                    JOptionPane.showMessageDialog(this, "✅ Found " + candidates.size() + " candidates across all ballots matching: " + searchTerm);
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
+            }
+        }
+    }
+
+    // ✅ ENHANCED: Search candidates in current ballot
+    private void searchCandidates() {
+        String searchTerm = candidateSearchField.getText().trim();
+        if (searchTerm.isEmpty()) {
+            loadCandidates();
+            return;
+        }
+
+        if (!checkConnectionBeforeOperation()) return;
+        
+        candidateModel.setRowCount(0);
+        if (conn != null) {
+            try {
+                // For single ballot search, we'll filter the existing data
+                List<Vector<Object>> allCandidates = AdminDatabaseLogic.getAllCandidatesFromTable(conn, currentTable);
+                List<Vector<Object>> filteredCandidates = new ArrayList<>();
+                
+                String lowerSearch = searchTerm.toLowerCase();
+                for (Vector<Object> row : allCandidates) {
+                    String party = row.get(0).toString().toLowerCase();
+                    String candidate = row.get(1).toString().toLowerCase();
+                    
+                    if (party.contains(lowerSearch) || candidate.contains(lowerSearch) ||
+                        (party + " " + candidate).contains(lowerSearch) ||
+                        (candidate + " " + party).contains(lowerSearch)) {
+                        filteredCandidates.add(row);
+                    }
+                }
+                
+                if (filteredCandidates.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "❌ No candidates found in " + currentTable.replace("Ballot", "") + " ballot matching: " + searchTerm);
+                } else {
+                    for (Vector<Object> row : filteredCandidates) {
+                        candidateModel.addRow(row);
+                    }
+                    JOptionPane.showMessageDialog(this, "✅ Found " + filteredCandidates.size() + " candidates in " + currentTable.replace("Ballot", "") + " ballot matching: " + searchTerm);
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
+            }
+        }
     }
 
     private void addCategoryTab(String tableName) {
@@ -355,6 +588,7 @@ public class AdminDashboard extends JFrame {
         tab.addActionListener(e -> {
             currentTable = tableName;
             highlightActiveTab(tab);
+            if (!checkConnectionBeforeOperation()) return;
             loadCandidates();
         });
 
@@ -373,16 +607,26 @@ public class AdminDashboard extends JFrame {
     }
 
     private void loadCandidates() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         candidateModel.setRowCount(0);
+        candidateModel.setColumnIdentifiers(new String[]{"Party", "Candidate", "Number of Votes"});
+        
         if (conn != null) {
-            List<Vector<Object>> candidates = AdminDatabaseLogic.getAllCandidatesFromTable(conn, currentTable);
-            for (Vector<Object> row : candidates) {
-                candidateModel.addRow(row);
+            try {
+                List<Vector<Object>> candidates = AdminDatabaseLogic.getAllCandidatesFromTable(conn, currentTable);
+                for (Vector<Object> row : candidates) {
+                    candidateModel.addRow(row);
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
             }
         }
     }
 
     private void addCandidate() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         // Full, updated version with images, region, and ballot selection
         JRadioButton partySupportedBtn = new JRadioButton("Party Supported");
         JRadioButton independentBtn = new JRadioButton("Independent");
@@ -420,7 +664,7 @@ public class AdminDashboard extends JFrame {
                     partyLogoData[0] = java.nio.file.Files.readAllBytes(file.toPath());
                     partyLogoLabel.setText(file.getName() + " selected");
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(this, "❌ Failed to read party logo: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(this, "Failed to read party logo: " + ex.getMessage());
                 }
             }
         });
@@ -433,7 +677,7 @@ public class AdminDashboard extends JFrame {
                     candidateFaceData[0] = java.nio.file.Files.readAllBytes(file.toPath());
                     candidateFaceLabel.setText(file.getName() + " selected");
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(this, "❌ Failed to read candidate image: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(this, "Failed to read candidate image: " + ex.getMessage());
                 }
             }
         });
@@ -480,7 +724,7 @@ public class AdminDashboard extends JFrame {
         int result = JOptionPane.showConfirmDialog(this, panel, "Add Candidate", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (result == JOptionPane.OK_OPTION) {
             if (candidateFaceData[0] == null || candidateFaceData[0].length == 0) {
-                JOptionPane.showMessageDialog(this, "⚠️ You must select a candidate image.");
+                JOptionPane.showMessageDialog(this, "You must select a candidate image.");
                 return;
             }
 
@@ -493,29 +737,35 @@ public class AdminDashboard extends JFrame {
                 value = provinceDropdown.getSelectedItem().toString();
             }
 
-            boolean added = AdminDatabaseLogic.addCandidateToBallots(
-                    conn,
-                    partyName,
-                    candidateName,
-                    nationalBox.isSelected(),
-                    regionalBox.isSelected(),
-                    provincialBox.isSelected(),
-                    candidateFaceData[0],
-                    partyLogoData[0],
-                    !partySupportedBtn.isSelected(),
-                    value
-            );
+            try {
+                boolean added = AdminDatabaseLogic.addCandidateToBallots(
+                        conn,
+                        partyName,
+                        candidateName,
+                        nationalBox.isSelected(),
+                        regionalBox.isSelected(),
+                        provincialBox.isSelected(),
+                        candidateFaceData[0],
+                        partyLogoData[0],
+                        !partySupportedBtn.isSelected(),
+                        value
+                );
 
-            if (added) {
-                loadCandidates();
+                if (added) {
+                    loadCandidates();
+                }
+            } catch (Exception ex) {
+                handleDatabaseError(ex);
             }
         }
     }
 
     private void deleteCandidate() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         int selectedRow = candidateTable.getSelectedRow();
         if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(this, "⚠️ Please select a candidate to delete.");
+            JOptionPane.showMessageDialog(this, "Please select a candidate to delete.");
             return;
         }
 
@@ -527,15 +777,48 @@ public class AdminDashboard extends JFrame {
                 "Confirm Deletion", JOptionPane.YES_NO_OPTION);
 
         if (confirm == JOptionPane.YES_OPTION) {
-            boolean deleted = AdminDatabaseLogic.deleteCandidateFromTable(conn, currentTable, partyName, candidateName);
-            if (deleted) {
-                loadCandidates();
+            try {
+                boolean deleted = AdminDatabaseLogic.deleteCandidateFromTable(conn, currentTable, partyName, candidateName);
+                if (deleted) {
+                    loadCandidates();
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
             }
         }
     }
 
     private JPanel createVoterPanel() {
         JPanel panel = new JPanel(new BorderLayout());
+        
+        // ✅ ENHANCED: Search panel for voters
+        JPanel searchPanel = new JPanel(new BorderLayout());
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        searchPanel.setBackground(Color.WHITE);
+        
+        JLabel searchLabel = new JLabel("Search Voters:");
+        voterSearchField = new JTextField(25);
+        voterSearchField.setToolTipText("Search by name, surname, ID number, voting status. Examples: 'John', '990101', 'voted', 'not voted'");
+        
+        JButton searchBtn = new JButton("Search");
+        JButton clearSearchBtn = new JButton("Clear");
+        
+        searchBtn.addActionListener(e -> searchVoters());
+        clearSearchBtn.addActionListener(e -> {
+            voterSearchField.setText("");
+            loadVoters();
+        });
+        
+        JPanel searchButtonPanel = new JPanel();
+        searchButtonPanel.add(searchBtn);
+        searchButtonPanel.add(clearSearchBtn);
+        
+        searchPanel.add(searchLabel, BorderLayout.WEST);
+        searchPanel.add(voterSearchField, BorderLayout.CENTER);
+        searchPanel.add(searchButtonPanel, BorderLayout.EAST);
+        
+        panel.add(searchPanel, BorderLayout.NORTH);
+
         String[] columns = {"Name", "Surname", "ID Number", "Fingerprint", "Has Voted"};
         voterModel = new DefaultTableModel(columns, 0) {
             @Override
@@ -550,28 +833,35 @@ public class AdminDashboard extends JFrame {
 
         voterModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && conn != null) {
+                if (!checkConnectionBeforeOperation()) return;
+                
                 int row = e.getFirstRow();
                 int column = e.getColumn();
                 if (row >= 0 && (column == 0 || column == 1)) {
                     String idNumber = voterModel.getValueAt(row, 2).toString();
                     String newValue = voterModel.getValueAt(row, column).toString();
-                    AdminDatabaseLogic.updateVoter(conn, idNumber, column, newValue);
+                    try {
+                        AdminDatabaseLogic.updateVoter(conn, idNumber, column, newValue);
+                    } catch (Exception ex) {
+                        handleDatabaseError(ex);
+                    }
                 }
             }
         });
 
         JPanel buttonPanel = new JPanel();
-        JButton addBtn = new JButton("➕ Add Voter");
-        JButton deleteBtn = new JButton("🗑 Delete Voter");
-        JButton refreshBtn = new JButton("🔄 Refresh List");
+        JButton addBtn = new JButton("Add Voter");
+        JButton deleteBtn = new JButton("Delete Voter");
+        JButton refreshBtn = new JButton("Refresh");
 
         addBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
             try {
                 ReaderCollection collection = UareUGlobal.GetReaderCollection();
                 collection.GetReaders();
                 Reader reader = collection.size() > 0 ? collection.get(0) : null;
                 if (reader == null) {
-                    JOptionPane.showMessageDialog(this, "❌ No fingerprint reader found!");
+                    JOptionPane.showMessageDialog(this, "No fingerprint reader found!");
                     return;
                 }
                 AddVoters.Run(reader, conn);
@@ -579,22 +869,89 @@ public class AdminDashboard extends JFrame {
                 UareUGlobal.DestroyReaderCollection();
             } catch (UareUException ex) {
                 ex.printStackTrace();
+            } catch (Exception ex) {
+                handleDatabaseError(ex);
             }
         });
 
-        deleteBtn.addActionListener(e -> deleteVoter());
-        refreshBtn.addActionListener(e -> loadVoters());
+        deleteBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            deleteVoter();
+        });
+        refreshBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            loadVoters();
+        });
 
         buttonPanel.add(addBtn);
-        buttonPanel.add(deleteBtn);
+        /*
+        ================================================================
+        REMOVED DELETE BUTTON
+        ================================================================
+        */
+        //buttonPanel.add(deleteBtn);
         buttonPanel.add(refreshBtn);
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         return panel;
     }
 
+    private void searchVoters() {
+        String searchTerm = voterSearchField.getText().trim();
+        if (searchTerm.isEmpty()) {
+            loadVoters();
+            return;
+        }
+
+        if (!checkConnectionBeforeOperation()) return;
+        
+        voterModel.setRowCount(0);
+        if (conn != null) {
+            try {
+                List<Vector<Object>> voters = AdminDatabaseLogic.searchVoters(conn, searchTerm);
+                if (voters.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "No voters found matching: " + searchTerm);
+                } else {
+                    for (Vector<Object> row : voters) {
+                        voterModel.addRow(row);
+                    }
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
+            }
+        }
+    }
+
     private JPanel createStatsPanel() {
         JPanel panel = new JPanel(new BorderLayout());
+        
+        JPanel searchPanel = new JPanel(new BorderLayout());
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        searchPanel.setBackground(Color.WHITE);
+        
+        JLabel searchLabel = new JLabel("Search Statistics:");
+        statsSearchField = new JTextField(25);
+        statsSearchField.setToolTipText("Search by party name. Examples: 'ANC', 'DA', 'EFF'");
+        
+        JButton searchBtn = new JButton("Search");
+        JButton clearSearchBtn = new JButton("Clear");
+        
+        searchBtn.addActionListener(e -> searchStats());
+        clearSearchBtn.addActionListener(e -> {
+            statsSearchField.setText("");
+            loadStats();
+        });
+        
+        JPanel searchButtonPanel = new JPanel();
+        searchButtonPanel.add(searchBtn);
+        searchButtonPanel.add(clearSearchBtn);
+        
+        searchPanel.add(searchLabel, BorderLayout.WEST);
+        searchPanel.add(statsSearchField, BorderLayout.CENTER);
+        searchPanel.add(searchButtonPanel, BorderLayout.EAST);
+        
+        panel.add(searchPanel, BorderLayout.NORTH);
+
         String[] columns = {"Party", "Total Votes", "Votes Today"};
         statsModel = new DefaultTableModel(columns, 0) {
             @Override
@@ -606,8 +963,11 @@ public class AdminDashboard extends JFrame {
         statsTable.setRowHeight(28);
         panel.add(new JScrollPane(statsTable), BorderLayout.CENTER);
 
-        JButton refreshBtn = new JButton("🔄 Refresh Stats");
-        refreshBtn.addActionListener(e -> loadStats());
+        JButton refreshBtn = new JButton("Refresh");
+        refreshBtn.addActionListener(e -> {
+            if (!checkConnectionBeforeOperation()) return;
+            loadStats();
+        });
         JPanel southPanel = new JPanel();
         southPanel.add(refreshBtn);
         panel.add(southPanel, BorderLayout.SOUTH);
@@ -615,35 +975,97 @@ public class AdminDashboard extends JFrame {
         return panel;
     }
 
-    private void loadStats() {
+    private void searchStats() {
+        String searchTerm = statsSearchField.getText().trim();
+        if (searchTerm.isEmpty()) {
+            loadStats();
+            return;
+        }
+
+        if (!checkConnectionBeforeOperation()) return;
+        
         statsModel.setRowCount(0);
         if (conn != null) {
-            List<Vector<Object>> stats = AdminDatabaseLogic.getVoteStatistics(conn);
-            for (Vector<Object> row : stats) {
-                statsModel.addRow(row);
+            try {
+                List<Vector<Object>> allStats = AdminDatabaseLogic.getVoteStatistics(conn);
+                List<Vector<Object>> filteredStats = new ArrayList<>();
+                
+                String lowerSearch = searchTerm.toLowerCase();
+                for (Vector<Object> row : allStats) {
+                    String party = row.get(0).toString().toLowerCase();
+                    if (party.contains(lowerSearch)) {
+                        filteredStats.add(row);
+                    }
+                }
+                
+                if (filteredStats.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "No statistics found for keyword: " + searchTerm);
+                } else {
+                    for (Vector<Object> row : filteredStats) {
+                        statsModel.addRow(row);
+                    }
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
+            }
+        }
+    }
+
+    private void loadStats() {
+        if (!checkConnectionBeforeOperation()) return;
+        
+        statsModel.setRowCount(0);
+        if (conn != null) {
+            try {
+                List<Vector<Object>> stats = AdminDatabaseLogic.getVoteStatistics(conn);
+                for (Vector<Object> row : stats) {
+                    statsModel.addRow(row);
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
             }
         }
     }
 
     private void loadVoters() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         voterModel.setRowCount(0);
         if (conn != null) {
-            List<Vector<Object>> voters = AdminDatabaseLogic.getAllVoters(conn);
-            for (Vector<Object> row : voters) {
-                voterModel.addRow(row);
+            try {
+                List<Vector<Object>> voters = AdminDatabaseLogic.getAllVoters(conn);
+                for (Vector<Object> row : voters) {
+                    voterModel.addRow(row);
+                }
+            } catch (Exception e) {
+                handleDatabaseError(e);
             }
         }
     }
 
     private void deleteVoter() {
+        if (!checkConnectionBeforeOperation()) return;
+        
         int selectedRow = voterTable.getSelectedRow();
         if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(this, "⚠️ Please select a voter to delete.");
+            JOptionPane.showMessageDialog(this, "Please select a voter to delete.");
             return;
         }
         String idNumber = (String) voterModel.getValueAt(selectedRow, 2);
-        if (AdminDatabaseLogic.deleteVoter(conn, idNumber)) {
-            loadVoters();
+        try {
+            if (AdminDatabaseLogic.deleteVoter(conn, idNumber)) {
+                loadVoters();
+            }
+        } catch (Exception e) {
+            handleDatabaseError(e);
         }
+    }
+
+    @Override
+    public void dispose() {
+        if (connectionMonitorTimer != null) {
+            connectionMonitorTimer.cancel();
+        }
+        super.dispose();
     }
 }
