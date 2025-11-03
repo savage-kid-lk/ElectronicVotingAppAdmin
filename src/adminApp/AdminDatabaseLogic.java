@@ -2,13 +2,10 @@ package adminApp;
 
 import java.sql.*;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Vector;
 import javax.swing.JOptionPane;
-import com.digitalpersona.uareu.*;
 
 public class AdminDatabaseLogic {
 
@@ -43,7 +40,6 @@ public class AdminDatabaseLogic {
             int month = Integer.parseInt(birth.substring(2, 4));
             int day = Integer.parseInt(birth.substring(4, 6));
 
-            // Determine century manually
             int currentYearTwoDigits = LocalDate.now().getYear() % 100;
             int century = (year > currentYearTwoDigits) ? 1900 : 2000;
 
@@ -51,7 +47,7 @@ public class AdminDatabaseLogic {
 
             return LocalDate.of(fullYear, month, day);
         } catch (Exception e) {
-            return null; // Invalid date
+            return null; 
         }
     }
 
@@ -86,16 +82,16 @@ public class AdminDatabaseLogic {
 
     public static boolean saveVoter(Connection conn, byte[] fidData, String name, String surname, String idNum) {
         if (!allFieldsFilled(name, surname, idNum)) {
-            JOptionPane.showMessageDialog(null, "❌ Please fill in all fields.");
+            JOptionPane.showMessageDialog(null, "Please fill in all fields.");
             return false;
         }
         if (!isValidSouthAfricanID(idNum)) {
-            JOptionPane.showMessageDialog(null, "❌ Invalid South African ID number.");
+            JOptionPane.showMessageDialog(null, "Invalid South African ID number.");
             return false;
         }
         try {
             if (idExists(conn, "VOTERS", idNum)) {
-                JOptionPane.showMessageDialog(null, "❌ Voter with this ID already exists.");
+                JOptionPane.showMessageDialog(null, "Voter with this ID already exists.");
                 return false;
             }
             int confirm = JOptionPane.showConfirmDialog(null,
@@ -111,27 +107,27 @@ public class AdminDatabaseLogic {
                 stmt.setString(3, surname);
                 stmt.setString(4, idNum);
                 stmt.executeUpdate();
-                JOptionPane.showMessageDialog(null, "✅ Voter added successfully!");
+                JOptionPane.showMessageDialog(null, "Voter added successfully!");
                 return true;
             }
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(null, "❌ Database error: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Database error: " + e.getMessage());
             return false;
         }
     }
 
     public static boolean saveAdmin(Connection conn, byte[] fidData, String name, String surname, String idNum) {
         if (!allFieldsFilled(name, surname, idNum)) {
-            JOptionPane.showMessageDialog(null, "❌ Please fill in all fields.");
+            JOptionPane.showMessageDialog(null, "Please fill in all fields.");
             return false;
         }
         if (!isValidSouthAfricanID(idNum)) {
-            JOptionPane.showMessageDialog(null, "❌ Invalid South African ID number.");
+            JOptionPane.showMessageDialog(null, "Invalid South African ID number.");
             return false;
         }
         try {
             if (idExists(conn, "Admins", idNum)) {
-                JOptionPane.showMessageDialog(null, "❌ Admin with this ID already exists.");
+                JOptionPane.showMessageDialog(null, "Admin with this ID already exists.");
                 return false;
             }
             int confirm = JOptionPane.showConfirmDialog(null,
@@ -147,11 +143,11 @@ public class AdminDatabaseLogic {
                 stmt.setString(3, surname);
                 stmt.setString(4, idNum);
                 stmt.executeUpdate();
-                JOptionPane.showMessageDialog(null, "✅ Admin added successfully!");
+                JOptionPane.showMessageDialog(null, "Admin added successfully!");
                 return true;
             }
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(null, "❌ Database error: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Database error: " + e.getMessage());
             return false;
         }
     }
@@ -176,7 +172,6 @@ public class AdminDatabaseLogic {
         return voters;
     }
 
-    // ✅ ADVANCED SEARCH: Search voters with comprehensive Google-like search
     public static List<Vector<Object>> searchVoters(Connection conn, String searchTerm) {
         conn = AdminDatabaseConnectivity.getValidatedConnection();
         List<Vector<Object>> voters = new ArrayList<>();
@@ -199,12 +194,10 @@ public class AdminDatabaseLogic {
             String searchPattern = "%" + cleanSearch + "%";
             String[] terms = cleanSearch.split("\\s+");
             
-            // Set basic search patterns
             for (int i = 1; i <= 7; i++) {
                 stmt.setString(i, searchPattern);
             }
             
-            // Handle voting status
             boolean isVoted = cleanSearch.equals("voted") || cleanSearch.equals("yes");
             boolean isNotVoted = cleanSearch.equals("not voted") || cleanSearch.equals("no");
             
@@ -217,7 +210,6 @@ public class AdminDatabaseLogic {
             stmt.setBoolean(14, false);
             stmt.setString(15, cleanSearch);
             
-            // Handle multi-word searches
             if (terms.length >= 2) {
                 stmt.setString(16, "%" + terms[0] + "%");
                 stmt.setString(17, "%" + terms[1] + "%");
@@ -245,19 +237,16 @@ public class AdminDatabaseLogic {
         return voters;
     }
 
-    // ✅ ADVANCED SEARCH: Search candidates across all ballots
     public static List<Vector<Object>> searchCandidates(Connection conn, String searchTerm) {
         List<Vector<Object>> allCandidates = new ArrayList<>();
         
         if (searchTerm == null || searchTerm.trim().isEmpty()) {
-            // Return empty list for empty search, let the UI handle loading all
             return allCandidates;
         }
         
         String cleanSearch = searchTerm.trim().toLowerCase();
         String searchPattern = "%" + cleanSearch + "%";
         
-        // Search in NationalBallot
         String nationalSql = "SELECT party_name, candidate_name, 'National' as ballot_type, " +
                            "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = nb.party_name AND category = 'National'), 0) as votes " +
                            "FROM NationalBallot nb " +
@@ -265,7 +254,6 @@ public class AdminDatabaseLogic {
                            "LOWER(CONCAT(party_name, ' ', candidate_name)) LIKE ? OR " +
                            "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
         
-        // Search in RegionalBallot
         String regionalSql = "SELECT party_name, candidate_name, CONCAT('Regional - ', region) as ballot_type, " +
                            "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = rb.party_name AND category = 'Regional'), 0) as votes " +
                            "FROM RegionalBallot rb " +
@@ -274,7 +262,6 @@ public class AdminDatabaseLogic {
                            "LOWER(CONCAT(party_name, ' ', candidate_name)) LIKE ? OR " +
                            "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
         
-        // Search in ProvincialBallot
         String provincialSql = "SELECT party_name, candidate_name, CONCAT('Provincial - ', province) as ballot_type, " +
                              "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = pb.party_name AND category = 'Provincial'), 0) as votes " +
                              "FROM ProvincialBallot pb " +
@@ -284,7 +271,6 @@ public class AdminDatabaseLogic {
                              "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
         
         try {
-            // Search National
             try (PreparedStatement stmt = conn.prepareStatement(nationalSql)) {
                 for (int i = 1; i <= 4; i++) {
                     stmt.setString(i, searchPattern);
@@ -301,7 +287,6 @@ public class AdminDatabaseLogic {
                 }
             }
             
-            // Search Regional
             try (PreparedStatement stmt = conn.prepareStatement(regionalSql)) {
                 for (int i = 1; i <= 5; i++) {
                     stmt.setString(i, searchPattern);
@@ -318,7 +303,6 @@ public class AdminDatabaseLogic {
                 }
             }
             
-            // Search Provincial
             try (PreparedStatement stmt = conn.prepareStatement(provincialSql)) {
                 for (int i = 1; i <= 5; i++) {
                     stmt.setString(i, searchPattern);
@@ -342,7 +326,6 @@ public class AdminDatabaseLogic {
         return allCandidates;
     }
 
-    // Update voter fingerprint
     public static boolean updateVoterFingerprint(Connection conn, String idNumber, byte[] fingerprintData) {
         conn = AdminDatabaseConnectivity.getValidatedConnection();
         String sql = "UPDATE VOTERS SET FINGERPRINT = ? WHERE ID_NUMBER = ?";
@@ -356,13 +339,11 @@ public class AdminDatabaseLogic {
             return false;
         }
     }
-    // ✅ ENHANCED: Delete voter and ALL associated data completely
     public static boolean deleteVoter(Connection conn, String idNumber) {
         conn = AdminDatabaseConnectivity.getValidatedConnection();
         try {
-            conn.setAutoCommit(false); // Start transaction
+            conn.setAutoCommit(false);
 
-            // Show confirmation dialog with warning about complete data removal
             int confirm = JOptionPane.showConfirmDialog(null,
                     "<html><b>WARNING: This will permanently delete ALL data for this voter:</b><br><br>"
                     + "• Voter registration details<br>"
@@ -382,25 +363,22 @@ public class AdminDatabaseLogic {
             boolean success = true;
             int totalRecordsDeleted = 0;
 
-            // 1. Delete all votes cast by this voter
             String deleteVotesSql = "DELETE FROM Votes WHERE voter_id_number = ?";
             try (PreparedStatement stmt = conn.prepareStatement(deleteVotesSql)) {
                 stmt.setString(1, idNumber);
                 int votesDeleted = stmt.executeUpdate();
                 totalRecordsDeleted += votesDeleted;
-                System.out.println("🗑️ Deleted " + votesDeleted + " votes for voter: " + idNumber);
+                System.out.println("Deleted " + votesDeleted + " votes for voter: " + idNumber);
             }
 
-            // 2. Delete all fraud attempts for this voter
             String deleteFraudSql = "DELETE FROM FraudAttempts WHERE voter_id_number = ?";
             try (PreparedStatement stmt = conn.prepareStatement(deleteFraudSql)) {
                 stmt.setString(1, idNumber);
                 int fraudDeleted = stmt.executeUpdate();
                 totalRecordsDeleted += fraudDeleted;
-                System.out.println("🗑️ Deleted " + fraudDeleted + " fraud attempts for voter: " + idNumber);
+                System.out.println("Deleted " + fraudDeleted + " fraud attempts for voter: " + idNumber);
             }
 
-            // 3. Finally delete the voter record itself
             String deleteVoterSql = "DELETE FROM VOTERS WHERE ID_NUMBER = ?";
             try (PreparedStatement stmt = conn.prepareStatement(deleteVoterSql)) {
                 stmt.setString(1, idNumber);
@@ -408,14 +386,13 @@ public class AdminDatabaseLogic {
 
                 if (voterDeleted > 0) {
                     totalRecordsDeleted += voterDeleted;
-                    // Commit the transaction
                     conn.commit();
 
-                    System.out.println("✅ Successfully deleted voter " + idNumber
+                    System.out.println("Successfully deleted voter " + idNumber
                             + " and " + totalRecordsDeleted + " associated records");
 
                     JOptionPane.showMessageDialog(null,
-                            "<html><b>✅ Voter completely deleted!</b><br><br>"
+                            "<html><b>Voter completely deleted!</b><br><br>"
                             + "Removed from system:<br>"
                             + "• Voter registration<br>"
                             + "• All associated votes<br>"
@@ -423,36 +400,33 @@ public class AdminDatabaseLogic {
                             + "Total records removed: " + totalRecordsDeleted + "</html>");
                     return true;
                 } else {
-                    // No voter found, rollback
                     conn.rollback();
-                    JOptionPane.showMessageDialog(null, "❌ Voter not found with ID: " + idNumber);
+                    JOptionPane.showMessageDialog(null, "Voter not found with ID: " + idNumber);
                     return false;
                 }
             }
 
         } catch (SQLException e) {
             try {
-                conn.rollback(); // Rollback on error
+                conn.rollback();
             } catch (SQLException rollbackEx) {
-                System.err.println("❌ Error during rollback: " + rollbackEx.getMessage());
+                System.err.println("Error during rollback: " + rollbackEx.getMessage());
             }
-            JOptionPane.showMessageDialog(null, "❌ Database error during voter deletion: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Database error during voter deletion: " + e.getMessage());
             return false;
         } finally {
             try {
-                conn.setAutoCommit(true); // Reset auto-commit
+                conn.setAutoCommit(true);
             } catch (SQLException ex) {
-                System.err.println("❌ Error resetting auto-commit: " + ex.getMessage());
+                System.err.println("Error resetting auto-commit: " + ex.getMessage());
             }
         }
     }
 
-    // ✅ NEW: Reset voter voting status without deleting the voter
     public static boolean resetVoterVotingStatus(Connection conn, String idNumber) {
         try {
-            conn.setAutoCommit(false); // Start transaction
+            conn.setAutoCommit(false);
 
-            // Show confirmation dialog
             int confirm = JOptionPane.showConfirmDialog(null,
                     "<html>Reset voting status for voter " + idNumber + "?<br><br>"
                     + "This will:<br>"
@@ -469,29 +443,27 @@ public class AdminDatabaseLogic {
                 return false;
             }
 
-            // 1. Delete all votes cast by this voter
             String deleteVotesSql = "DELETE FROM Votes WHERE voter_id_number = ?";
             try (PreparedStatement stmt = conn.prepareStatement(deleteVotesSql)) {
                 stmt.setString(1, idNumber);
                 int votesDeleted = stmt.executeUpdate();
-                System.out.println("🗑️ Deleted " + votesDeleted + " votes for voter: " + idNumber);
+                System.out.println("Deleted " + votesDeleted + " votes for voter: " + idNumber);
             }
 
-            // 2. Reset the has_voted status to FALSE
             String resetVoterSql = "UPDATE VOTERS SET has_voted = FALSE WHERE ID_NUMBER = ?";
             try (PreparedStatement stmt = conn.prepareStatement(resetVoterSql)) {
                 stmt.setString(1, idNumber);
                 int rowsAffected = stmt.executeUpdate();
 
                 if (rowsAffected > 0) {
-                    conn.commit(); // Commit transaction
+                    conn.commit();
                     JOptionPane.showMessageDialog(null,
-                            "<html><b>✅ Voting status reset successfully!</b><br><br>"
+                            "<html><b>Voting status reset successfully!</b><br><br>"
                             + "Voter " + idNumber + " can now vote again as a new voter.</html>");
                     return true;
                 } else {
                     conn.rollback();
-                    JOptionPane.showMessageDialog(null, "❌ Voter not found with ID: " + idNumber);
+                    JOptionPane.showMessageDialog(null, "Voter not found with ID: " + idNumber);
                     return false;
                 }
             }
@@ -500,15 +472,15 @@ public class AdminDatabaseLogic {
             try {
                 conn.rollback();
             } catch (SQLException rollbackEx) {
-                System.err.println("❌ Error during rollback: " + rollbackEx.getMessage());
+                System.err.println("Error during rollback: " + rollbackEx.getMessage());
             }
-            JOptionPane.showMessageDialog(null, "❌ Database error resetting voting status: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Database error resetting voting status: " + e.getMessage());
             return false;
         } finally {
             try {
                 conn.setAutoCommit(true);
             } catch (SQLException ex) {
-                System.err.println("❌ Error resetting auto-commit: " + ex.getMessage());
+                System.err.println("Error resetting auto-commit: " + ex.getMessage());
             }
         }
     }
@@ -543,12 +515,12 @@ public class AdminDatabaseLogic {
             }
 
             if (anyAdded) {
-                JOptionPane.showMessageDialog(null, "✅ Candidate added successfully!");
+                JOptionPane.showMessageDialog(null, "Candidate added successfully!");
             } else {
-                JOptionPane.showMessageDialog(null, "❌ Failed to add candidate to any ballot.");
+                JOptionPane.showMessageDialog(null, "Failed to add candidate to any ballot.");
             }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(null, "❌ Error adding candidate: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Error adding candidate: " + e.getMessage());
         }
 
         return success;
@@ -625,7 +597,7 @@ public class AdminDatabaseLogic {
                 category = "Provincial";
                 break;
             default:
-                System.err.println("❌ Unknown table name: " + tableName);
+                System.err.println("Unknown table name: " + tableName);
                 return false;
         }
 
@@ -647,7 +619,7 @@ public class AdminDatabaseLogic {
             }
 
             conn.commit();
-            JOptionPane.showMessageDialog(null, "✅ Candidate and related votes deleted successfully!");
+            JOptionPane.showMessageDialog(null, "Candidate and related votes deleted successfully!");
             return true;
 
         } catch (SQLException e) {
@@ -657,7 +629,7 @@ public class AdminDatabaseLogic {
             } catch (SQLException rollbackEx) {
                 rollbackEx.printStackTrace();
             }
-            JOptionPane.showMessageDialog(null, "❌ Failed to delete candidate: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Failed to delete candidate: " + e.getMessage());
             return false;
 
         } finally {
@@ -696,7 +668,6 @@ public class AdminDatabaseLogic {
         return stats;
     }
 
-    // --- voter updater ---
     public static void updateVoter(Connection conn, String idNumber, int column, String newValue) {
         String columnName = column == 0 ? "NAME" : "SURNAME";
         String sql = "UPDATE VOTERS SET " + columnName + " = ? WHERE ID_NUMBER = ?";
@@ -757,23 +728,22 @@ public class AdminDatabaseLogic {
                 fraudAttempts.add(row);
             }
         } catch (SQLException e) {
-            System.err.println("❌ Error retrieving fraud attempts: " + e.getMessage());
+            System.err.println("Error retrieving fraud attempts: " + e.getMessage());
         }
         return fraudAttempts;
     }
 
-    // Mark fraud attempt as resolved
     public static boolean resolveFraudAttempt(Connection conn, int fraudId) {
         String sql = "UPDATE FraudAttempts SET resolved = TRUE WHERE id = ?";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, fraudId);
             boolean result = stmt.executeUpdate() > 0;
             if (result) {
-                JOptionPane.showMessageDialog(null, "✅ Fraud attempt marked as resolved!");
+                JOptionPane.showMessageDialog(null, "Fraud attempt marked as resolved!");
             }
             return result;
         } catch (SQLException e) {
-            JOptionPane.showMessageDialog(null, "❌ Error resolving fraud attempt: " + e.getMessage());
+            JOptionPane.showMessageDialog(null, "Error resolving fraud attempt: " + e.getMessage());
             return false;
         }
     }
@@ -790,7 +760,7 @@ public class AdminDatabaseLogic {
                 }
             }
 
-            // Total votes cast
+            // Total votes
             String totalVotesSql = "SELECT COUNT(*) as total FROM Votes";
             try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(totalVotesSql)) {
                 if (rs.next()) {

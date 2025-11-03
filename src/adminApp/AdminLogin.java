@@ -4,6 +4,7 @@ import com.digitalpersona.uareu.*;
 import javax.swing.*;
 import java.awt.*;
 import java.sql.Connection;
+import javax.swing.border.LineBorder;
 
 public class AdminLogin extends JFrame {
 
@@ -25,16 +26,13 @@ public class AdminLogin extends JFrame {
         gbc.insets = new Insets(20, 20, 20, 20);
         gbc.gridx = 0;
 
-// === LOGO ===
-        ImageIcon logo = new ImageIcon(getClass().getResource("/IEC LOGO.png"));
+        ImageIcon logo = new ImageIcon(getClass().getResource("/appLogo.png"));
         Image scaledImage = logo.getImage().getScaledInstance(250, 250, Image.SCALE_SMOOTH);
         ImageIcon scaledLogo = new ImageIcon(scaledImage);
         JLabel logoLabel = new JLabel(scaledLogo);
-
         gbc.gridy = 0;
         mainPanel.add(logoLabel, gbc);
-
-// === WELCOME TEXT ===
+        
         gbc.gridy = 1;
         JLabel welcomeLabel = new JLabel(
                 "<html><center>Admin Login<br>Electronic Voting System</center></html>",
@@ -43,22 +41,20 @@ public class AdminLogin extends JFrame {
         welcomeLabel.setForeground(Color.WHITE);
         mainPanel.add(welcomeLabel, gbc);
 
-// === CONNECTION STATUS ===
         gbc.gridy = 2;
         loginButton = new JButton("Login");
         loginButton.setFont(new Font("Segoe UI", Font.BOLD, 20));
-        loginButton.setBackground(new Color(255, 209, 0));
+        loginButton.setBorder(new LineBorder(new Color(255, 209, 0)));
         loginButton.setPreferredSize(new Dimension(200, 55));
         mainPanel.add(loginButton, gbc);
         loginButton.addActionListener(e -> {
             loginButton.setEnabled(false);
 
-            // Force reconnection before attempting login
             AdminDatabaseConnectivity.forceReconnection();
 
             if (AdminDatabaseConnectivity.isConnectionLost()) {
                 JOptionPane.showMessageDialog(AdminLogin.this,
-                        "❌ Cannot connect to database. Please check your internet connection and try again.",
+                        "Cannot connect to database. Please check your internet connection and try again.",
                         "Connection Error",
                         JOptionPane.ERROR_MESSAGE);
                 loginButton.setEnabled(true);
@@ -67,7 +63,6 @@ public class AdminLogin extends JFrame {
 
             JDialog scanDialog = createScanDialog();
 
-            // Start verification in separate thread
             new Thread(() -> {
                 SwingUtilities.invokeLater(() -> {
                     scanDialog.setVisible(true);
@@ -79,7 +74,6 @@ public class AdminLogin extends JFrame {
 
                     if (readers.size() > 0) {
                         Reader reader = readers.get(0);
-                        // Use the reconnected connection
                         Connection freshConn = AdminDatabaseConnectivity.getConnection();
                         AdminVerification verification = new AdminVerification(reader, freshConn);
                         verification.startVerification((verified, adminName, adminSurname) -> {
@@ -87,14 +81,13 @@ public class AdminLogin extends JFrame {
                                 scanDialog.dispose();
                                 loginButton.setEnabled(true);
                                 if (verified) {
-                                    // Pass the fresh connection to the dashboard
                                     AdminDashboard dashboard = new AdminDashboard(freshConn, this);
                                     dashboard.setAdminInfo(adminName, adminSurname);
                                     dashboard.setVisible(true);
                                     dispose();
                                 } else {
                                     JOptionPane.showMessageDialog(AdminLogin.this,
-                                            "❌ Verification Failed - Access Denied",
+                                            "Verification Failed - Access Denied",
                                             "Authentication Error",
                                             JOptionPane.ERROR_MESSAGE);
                                 }
@@ -104,7 +97,7 @@ public class AdminLogin extends JFrame {
                         SwingUtilities.invokeLater(() -> {
                             scanDialog.dispose();
                             JOptionPane.showMessageDialog(AdminLogin.this,
-                                    "❌ No fingerprint reader found.",
+                                    "No fingerprint reader found.",
                                     "Hardware Error",
                                     JOptionPane.ERROR_MESSAGE);
                             loginButton.setEnabled(true);
@@ -114,7 +107,7 @@ public class AdminLogin extends JFrame {
                     SwingUtilities.invokeLater(() -> {
                         scanDialog.dispose();
                         JOptionPane.showMessageDialog(AdminLogin.this,
-                                "❌ Error accessing fingerprint reader: " + ex.getMessage(),
+                                "Error accessing fingerprint reader: " + ex.getMessage(),
                                 "Hardware Error",
                                 JOptionPane.ERROR_MESSAGE);
                         loginButton.setEnabled(true);
@@ -126,17 +119,13 @@ public class AdminLogin extends JFrame {
         add(mainPanel);
     }
 
-    /**
-     * Show login window again when redirected from dashboard
-     */
     public void showLoginAgain() {
         SwingUtilities.invokeLater(() -> {
             setVisible(true);
-            // Reset connection status and check current status
             AdminDatabaseConnectivity.setConnectionLost(true);
 
             JOptionPane.showMessageDialog(this,
-                    "🔁 Database connection was lost. Please login again.",
+                    "Database connection was lost. Please login again.",
                     "Session Expired",
                     JOptionPane.INFORMATION_MESSAGE);
         });

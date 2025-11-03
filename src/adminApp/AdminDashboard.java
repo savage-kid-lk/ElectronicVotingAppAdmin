@@ -3,11 +3,12 @@ package adminApp;
 import com.digitalpersona.uareu.*;
 import javax.swing.*;
 import javax.swing.event.TableModelEvent;
-import javax.swing.event.TableModelListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Vector;
@@ -38,22 +39,35 @@ public class AdminDashboard extends JFrame {
     private JTextArea fraudReportsArea;
     private AdminLogin loginWindow;
     private Timer connectionMonitorTimer;
-    
-    // Search fields
+    private Timer autoRefreshTimer;
+
     private JTextField candidateSearchField;
     private JTextField voterSearchField;
     private JTextField statsSearchField;
+
+    private void startAutoRefresh() {
+        autoRefreshTimer = new Timer(true);
+        autoRefreshTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                SwingUtilities.invokeLater(() -> {
+                    if (!checkConnectionBeforeOperation()) {
+                        return;
+                    }
+                    refreshFraudReports();
+                });
+            }
+        }, 0, 15000);
+    }
 
     public AdminDashboard(Connection connection, AdminLogin loginWindow) {
         this.conn = connection;
         this.loginWindow = loginWindow;
         initializeUI();
+        startAutoRefresh();
         startConnectionMonitoring();
     }
 
-    /**
-     * Start monitoring connection status
-     */
     private void startConnectionMonitoring() {
         connectionMonitorTimer = new Timer(true);
         connectionMonitorTimer.scheduleAtFixedRate(new TimerTask() {
@@ -61,144 +75,133 @@ public class AdminDashboard extends JFrame {
             public void run() {
                 checkConnectionStatus();
             }
-        }, 30000, 30000); // Check every 30 seconds
+        }, 30000, 30000);
     }
 
-    /**
-     * Check if connection is still valid
-     */
     private void checkConnectionStatus() {
         if (AdminDatabaseConnectivity.shouldRedirectToLogin()) {
             SwingUtilities.invokeLater(() -> {
                 JOptionPane.showMessageDialog(AdminDashboard.this,
-                    "❌ Database connection lost. You will be redirected to login.",
-                    "Connection Timeout",
-                    JOptionPane.WARNING_MESSAGE);
+                        "Database connection lost. You will be redirected to login.",
+                        "Connection Timeout",
+                        JOptionPane.WARNING_MESSAGE);
                 redirectToLogin();
             });
         }
     }
 
-    /**
-     * Redirect back to login window
-     */
     private void redirectToLogin() {
         if (connectionMonitorTimer != null) {
             connectionMonitorTimer.cancel();
         }
-        
-        // Close current window
+
         dispose();
-        
-        // Show login window again
+
         if (loginWindow != null) {
             loginWindow.showLoginAgain();
         } else {
-            // Fallback: create new login window
             new AdminLogin().setVisible(true);
         }
     }
 
-    /**
-     * Enhanced database operations with connection checking
-     */
     private boolean checkConnectionBeforeOperation() {
         if (AdminDatabaseConnectivity.shouldRedirectToLogin()) {
             JOptionPane.showMessageDialog(this,
-                "❌ Database connection lost. Please login again.",
-                "Connection Error",
-                JOptionPane.ERROR_MESSAGE);
+                    "Database connection lost. Please login again.",
+                    "Connection Error",
+                    JOptionPane.ERROR_MESSAGE);
             redirectToLogin();
             return false;
         }
         return true;
     }
 
-    /**
-     * Handle database errors and redirect if connection is lost
-     */
     private void handleDatabaseError(Exception e) {
         System.err.println("Database error: " + e.getMessage());
-        
-        // Check if this is a connection timeout error
-        if (e.getMessage().contains("connection") || e.getMessage().contains("timeout") || 
-            e.getMessage().contains("closed")) {
+
+        if (e.getMessage().contains("connection") || e.getMessage().contains("timeout")
+                || e.getMessage().contains("closed")) {
             AdminDatabaseConnectivity.setConnectionLost(true);
             redirectToLogin();
         } else {
             JOptionPane.showMessageDialog(this,
-                "❌ Database error: " + e.getMessage(),
-                "Database Error",
-                JOptionPane.ERROR_MESSAGE);
+                    "Database error: " + e.getMessage(),
+                    "Database Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
     private void initializeUI() {
-        setTitle("🗳 Voting Machine Admin Dashboard");
+        setTitle("Voting Machine Admin Dashboard");
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         getContentPane().setBackground(new Color(0, 87, 183));
         setLayout(new BorderLayout());
 
-        header = new JLabel("Voting Machine Admin Dashboard", SwingConstants.CENTER);
-        header.setFont(new Font("Segoe UI", Font.BOLD, 26));
+        header = new JLabel("Electronic Voting Machine Admin Dashboard", SwingConstants.CENTER);
+        header.setFont(new Font("Segoe UI", Font.BOLD, 28));
         header.setForeground(Color.WHITE);
-        header.setBorder(BorderFactory.createEmptyBorder(15, 0, 15, 0));
+        header.setBorder(BorderFactory.createEmptyBorder(20, 0, 20, 0));
         add(header, BorderLayout.NORTH);
 
-        // Create main content panel with left nav, center content, and right fraud panel
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        
-        // Left navigation panel
+        JPanel contentPanel = new JPanel(new BorderLayout(10, 10));
+        contentPanel.setBackground(new Color(0, 87, 183));
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
         JPanel navPanel = new JPanel();
         navPanel.setBackground(new Color(0, 87, 183));
-        navPanel.setLayout(new GridLayout(3, 1, 0, 10));
-        navPanel.setPreferredSize(new Dimension(250, 0));
+        navPanel.setLayout(new GridLayout(3, 1, 0, 15));
+        navPanel.setPreferredSize(new Dimension(280, 0));
+        navPanel.setBorder(BorderFactory.createEmptyBorder(20, 10, 20, 10));
 
-        JButton manageVotersBtn = createNavButton("👥 Manage Voters");
-        JButton manageCandidatesBtn = createNavButton("🏛 Manage Candidates");
-        JButton viewStatisticsBtn = createNavButton("📊 View Statistics");
+        JButton manageVotersBtn = createNavButton("Manage Voters");
+        JButton manageCandidatesBtn = createNavButton("Manage Candidates");
+        JButton viewStatisticsBtn = createNavButton("View Statistics");
 
         navPanel.add(manageVotersBtn);
         navPanel.add(manageCandidatesBtn);
         navPanel.add(viewStatisticsBtn);
         contentPanel.add(navPanel, BorderLayout.WEST);
 
-        // Center main panel with card layout
         cardLayout = new CardLayout();
         mainPanel = new JPanel(cardLayout);
+        mainPanel.setBackground(Color.WHITE);
+        mainPanel.setBorder(BorderFactory.createLineBorder(new Color(200, 200, 200), 1));
 
         JPanel candidatePanel = createCandidatePanel();
         JPanel voterPanel = createVoterPanel();
         JPanel statsPanel = createStatsPanel();
-        JPanel fraudPanel = createFraudPanel();
 
         mainPanel.add(voterPanel, "VOTERS");
         mainPanel.add(candidatePanel, "CANDIDATES");
         mainPanel.add(statsPanel, "STATS");
-        mainPanel.add(fraudPanel, "FRAUD");
 
         contentPanel.add(mainPanel, BorderLayout.CENTER);
 
-        // Right fraud reports panel
         JPanel fraudSidePanel = createFraudReportsPanel();
-        fraudSidePanel.setPreferredSize(new Dimension(250, 0));
+        fraudSidePanel.setPreferredSize(new Dimension(380, 0));
         contentPanel.add(fraudSidePanel, BorderLayout.EAST);
 
         add(contentPanel, BorderLayout.CENTER);
 
         manageVotersBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadVoters();
             cardLayout.show(mainPanel, "VOTERS");
         });
         manageCandidatesBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadCandidates();
             cardLayout.show(mainPanel, "CANDIDATES");
         });
         viewStatisticsBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadStats();
             cardLayout.show(mainPanel, "STATS");
         });
@@ -207,144 +210,124 @@ public class AdminDashboard extends JFrame {
         cardLayout.show(mainPanel, "CANDIDATES");
     }
 
-    private JPanel createFraudPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        
-        String[] columns = {"ID", "Voter ID", "Voter Name", "Type", "Timestamp", "Details", "Resolved", "Attempts"};
-        fraudModel = new DefaultTableModel(columns, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return column == 6; // Only resolved column is editable
-            }
-            
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex == 6) return Boolean.class;
-                return String.class;
-            }
-        };
-        
-        fraudTable = new JTable(fraudModel);
-        fraudTable.setRowHeight(25);
-        fraudTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-        fraudTable.getColumnModel().getColumn(1).setPreferredWidth(100);
-        fraudTable.getColumnModel().getColumn(2).setPreferredWidth(150);
-        fraudTable.getColumnModel().getColumn(3).setPreferredWidth(100);
-        fraudTable.getColumnModel().getColumn(4).setPreferredWidth(150);
-        fraudTable.getColumnModel().getColumn(5).setPreferredWidth(200);
-        fraudTable.getColumnModel().getColumn(6).setPreferredWidth(80);
-        fraudTable.getColumnModel().getColumn(7).setPreferredWidth(80);
-        
-        // Listen for resolution changes
-        fraudModel.addTableModelListener(e -> {
-            if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 6) {
-                int row = e.getFirstRow();
-                int fraudId = (int) fraudModel.getValueAt(row, 0);
-                boolean resolved = (boolean) fraudModel.getValueAt(row, 6);
-                
-                if (resolved) {
-                    if (!checkConnectionBeforeOperation()) return;
-                    AdminDatabaseLogic.resolveFraudAttempt(conn, fraudId);
-                }
-            }
-        });
-        
-        JScrollPane scrollPane = new JScrollPane(fraudTable);
-        panel.add(scrollPane, BorderLayout.CENTER);
-        
-        JPanel buttonPanel = new JPanel();
-        JButton refreshBtn = new JButton("🔄 Refresh Fraud Data");
-        refreshBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
-            loadFraudData();
-        });
-        buttonPanel.add(refreshBtn);
-        panel.add(buttonPanel, BorderLayout.SOUTH);
-        
-        return panel;
-    }
-    
-
-    private void loadFraudData() {
-        if (!checkConnectionBeforeOperation()) return;
-        
-        fraudModel.setRowCount(0);
-        if (conn != null) {
-            try {
-                List<Vector<Object>> fraudAttempts = AdminDatabaseLogic.getFraudAttempts(conn);
-                for (Vector<Object> row : fraudAttempts) {
-                    fraudModel.addRow(row);
-                }
-            } catch (Exception e) {
-                handleDatabaseError(e);
-            }
-        }
-    }
-
     private JPanel createFraudReportsPanel() {
-        JPanel fraudPanel = new JPanel(new BorderLayout());
+        JPanel fraudPanel = new JPanel(new BorderLayout(10, 10));
         fraudPanel.setBackground(new Color(0, 87, 183));
-        fraudPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        fraudPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
-        // Header
         JLabel fraudHeader = new JLabel("Fraud Reports", SwingConstants.CENTER);
-        fraudHeader.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        fraudHeader.setFont(new Font("Segoe UI", Font.BOLD, 20));
         fraudHeader.setForeground(Color.WHITE);
-        fraudHeader.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        fraudHeader.setBorder(BorderFactory.createEmptyBorder(0, 0, 15, 0));
         fraudPanel.add(fraudHeader, BorderLayout.NORTH);
 
-        // Scrollable fraud reports area
         fraudReportsArea = new JTextArea();
         fraudReportsArea.setEditable(false);
-        fraudReportsArea.setBackground(new Color(240, 240, 240));
-        fraudReportsArea.setForeground(Color.BLACK);
-        fraudReportsArea.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        fraudReportsArea.setBackground(new Color(248, 248, 248));
+        fraudReportsArea.setForeground(new Color(60, 60, 60));
+        fraudReportsArea.setFont(new Font("Segoe UI", Font.PLAIN, 13));
         fraudReportsArea.setLineWrap(true);
         fraudReportsArea.setWrapStyleWord(true);
+        fraudReportsArea.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
 
         JScrollPane fraudScrollPane = new JScrollPane(fraudReportsArea);
         fraudScrollPane.setBorder(BorderFactory.createTitledBorder(
-            BorderFactory.createLineBorder(Color.LIGHT_GRAY), 
-            "Recent Activity"
+                BorderFactory.createLineBorder(Color.LIGHT_GRAY),
+                "Recent Activity"
         ));
-        fraudScrollPane.setPreferredSize(new Dimension(230, 400));
+        fraudScrollPane.setPreferredSize(new Dimension(350, 400));
         fraudPanel.add(fraudScrollPane, BorderLayout.CENTER);
 
-        // Refresh button for fraud reports
-        JButton refreshFraudBtn = new JButton("🔄 Refresh Reports");
-        refreshFraudBtn.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JButton refreshFraudBtn = new JButton("Refresh Reports");
+        refreshFraudBtn.setFont(new Font("Segoe UI", Font.BOLD, 14));
         refreshFraudBtn.setBackground(new Color(255, 209, 0));
         refreshFraudBtn.setForeground(Color.BLACK);
         refreshFraudBtn.setFocusPainted(false);
+        refreshFraudBtn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 150, 0), 1),
+                BorderFactory.createEmptyBorder(10, 20, 10, 20)
+        ));
         refreshFraudBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         refreshFraudBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             refreshFraudReports();
         });
 
-        JPanel buttonPanel = new JPanel();
+        JButton logoutBtn = new JButton("Logout");
+        logoutBtn.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        logoutBtn.setBackground(new Color(220, 80, 60));
+        logoutBtn.setForeground(Color.WHITE);
+        logoutBtn.setFocusPainted(false);
+        logoutBtn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(180, 60, 40), 1),
+                BorderFactory.createEmptyBorder(10, 20, 10, 20)
+        ));
+        logoutBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        logoutBtn.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "Are you sure you want to logout?",
+                    "Confirm Logout",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (confirm == JOptionPane.YES_OPTION) {
+                // Stop all timers
+                if (connectionMonitorTimer != null) {
+                    connectionMonitorTimer.cancel();
+                }
+                if (autoRefreshTimer != null) {
+                    autoRefreshTimer.cancel();
+                }
+
+                // Close database connection
+                try {
+                    if (conn != null && !conn.isClosed()) {
+                        conn.close();
+                    }
+                } catch (Exception ex) {
+                    System.err.println("Error closing database connection: " + ex.getMessage());
+                }
+
+                // Redirect to login
+                dispose();
+                if (loginWindow != null) {
+                    loginWindow.setVisible(true);
+                } else {
+                    new AdminLogin().setVisible(true);
+                }
+            }
+        });
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 0));
         buttonPanel.setBackground(new Color(0, 87, 183));
         buttonPanel.add(refreshFraudBtn);
+        buttonPanel.add(logoutBtn);
         fraudPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        // Load initial fraud reports
         refreshFraudReports();
 
         return fraudPanel;
     }
 
     private void refreshFraudReports() {
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         StringBuilder reports = new StringBuilder();
-        reports.append("=== Real-time Fraud Detection ===\n");
+        reports.append("======= Real-time Fraud Detection =======\n");
         reports.append("Last Updated: ").append(new java.util.Date()).append("\n\n");
-        
+
         if (conn != null) {
             try {
                 Vector<Object> stats = AdminDatabaseLogic.getVotingStatisticsSummary(conn);
                 if (stats.size() >= 4) {
-                    reports.append("📊 VOTING STATISTICS:\n");
+                    reports.append("VOTING STATISTICS:\n");
                     reports.append("• Total Voters: ").append(stats.get(0)).append("\n");
                     reports.append("• Total Votes: ").append(stats.get(1)).append("\n");
                     reports.append("• Votes Today: ").append(stats.get(2)).append("\n");
@@ -353,14 +336,16 @@ public class AdminDashboard extends JFrame {
 
                 List<Vector<Object>> recentFraud = AdminDatabaseLogic.getFraudAttempts(conn);
                 if (!recentFraud.isEmpty()) {
-                    reports.append("🚨 RECENT FRAUD ATTEMPTS:\n");
+                    reports.append("RECENT FRAUD ATTEMPTS:\n");
                     int count = 0;
                     for (Vector<Object> fraud : recentFraud) {
-                        if (count >= 5) break; // Show only 5 most recent
+                        if (count >= 5) {
+                            break; // Show only 5 most recent
+                        }
                         boolean resolved = (boolean) fraud.get(6);
                         if (!resolved) {
                             reports.append("• ").append(fraud.get(3)).append(" - ")
-                                  .append(fraud.get(2)).append(" (ID: ").append(fraud.get(1)).append(")\n");
+                                    .append(fraud.get(2)).append(" (ID: ").append(fraud.get(1)).append(")\n");
                             count++;
                         }
                     }
@@ -368,21 +353,21 @@ public class AdminDashboard extends JFrame {
                         reports.append("• No active fraud cases\n");
                     }
                 } else {
-                    reports.append("✅ No fraud attempts detected.\n");
+                    reports.append("No fraud attempts detected.\n");
                 }
             } catch (Exception e) {
                 handleDatabaseError(e);
-                reports.append("❌ Error loading fraud data: ").append(e.getMessage()).append("\n");
+                reports.append("Error loading fraud data: ").append(e.getMessage()).append("\n");
             }
         } else {
-            reports.append("❌ Database connection unavailable\n");
+            reports.append("Database connection unavailable\n");
         }
 
         fraudReportsArea.setText(reports.toString());
     }
 
     public void setAdminInfo(String name, String surname) {
-        header.setText("Voting Machine Admin Dashboard — Logged in as: " + name + " " + surname);
+        header.setText("Electronic Voting Machine Admin: " + name + " " + surname);
     }
 
     private JButton createNavButton(String title) {
@@ -391,50 +376,83 @@ public class AdminDashboard extends JFrame {
         btn.setBackground(new Color(255, 209, 0));
         btn.setForeground(Color.BLACK);
         btn.setFocusPainted(false);
+        btn.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 150, 0), 2),
+                BorderFactory.createEmptyBorder(15, 20, 15, 20)
+        ));
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        btn.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseEntered(java.awt.event.MouseEvent evt) {
+                btn.setBackground(new Color(255, 225, 100));
+            }
+
+            public void mouseExited(java.awt.event.MouseEvent evt) {
+                btn.setBackground(new Color(255, 209, 0));
+            }
+        });
+
         return btn;
     }
 
     private JPanel createCandidatePanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        
-        // ✅ ENHANCED: Search panel for candidates
-        JPanel searchPanel = new JPanel(new BorderLayout());
-        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        searchPanel.setBackground(Color.WHITE);
-        
-        JLabel searchLabel = new JLabel("🔍 Search Candidates:");
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        JPanel topPanel = new JPanel(new BorderLayout(10, 10));
+        topPanel.setBackground(Color.WHITE);
+
+        JPanel searchPanel = new JPanel(new BorderLayout(10, 10));
+        searchPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Search Candidates"),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+        searchPanel.setBackground(new Color(248, 248, 248));
+
+        JLabel searchLabel = new JLabel("Search Candidates:");
+        searchLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
         candidateSearchField = new JTextField(25);
+        candidateSearchField.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         candidateSearchField.setToolTipText("Search by party name, candidate name, region, or province. Examples: 'EFF', 'Cyril Ramaphosa', 'Gauteng'");
-        
-        JButton searchBtn = new JButton("Search");
-        JButton clearSearchBtn = new JButton("Clear");
-        JButton allCandidatesBtn = new JButton("Show All Ballots");
-        
+        candidateSearchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                BorderFactory.createEmptyBorder(5, 8, 5, 8)
+        ));
+
+        JButton searchBtn = createActionButton("Search", new Color(0, 87, 183));
+        JButton clearSearchBtn = createActionButton("Clear", new Color(120, 120, 120));
+        JButton allCandidatesBtn = createActionButton("Show All Ballots", new Color(0, 87, 183));
+
         searchBtn.addActionListener(e -> searchCandidates());
         clearSearchBtn.addActionListener(e -> {
             candidateSearchField.setText("");
             loadCandidates();
         });
         allCandidatesBtn.addActionListener(e -> searchAllCandidates());
-        
-        JPanel searchButtonPanel = new JPanel();
+
+        JPanel searchButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        searchButtonPanel.setBackground(new Color(248, 248, 248));
         searchButtonPanel.add(searchBtn);
         searchButtonPanel.add(clearSearchBtn);
         searchButtonPanel.add(allCandidatesBtn);
-        
+
         searchPanel.add(searchLabel, BorderLayout.WEST);
         searchPanel.add(candidateSearchField, BorderLayout.CENTER);
         searchPanel.add(searchButtonPanel, BorderLayout.EAST);
-        
-        panel.add(searchPanel, BorderLayout.NORTH);
-        
-        // Fixed category tabs - always visible
-        categoryTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
+
+        categoryTabs = new JPanel(new GridLayout(1, 3, 5, 0));
+        categoryTabs.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
+        categoryTabs.setBackground(Color.WHITE);
+
         addCategoryTab("NationalBallot");
         addCategoryTab("RegionalBallot");
         addCategoryTab("ProvincialBallot");
-        panel.add(categoryTabs, BorderLayout.CENTER);
+
+        topPanel.add(searchPanel, BorderLayout.NORTH);
+        topPanel.add(categoryTabs, BorderLayout.CENTER);
+
+        panel.add(topPanel, BorderLayout.NORTH);
 
         String[] columns = {"Party", "Candidate", "Number of Votes"};
         candidateModel = new DefaultTableModel(columns, 0) {
@@ -444,30 +462,34 @@ public class AdminDashboard extends JFrame {
             }
         };
         candidateTable = new JTable(candidateModel);
-        candidateTable.setRowHeight(30);
-        panel.add(new JScrollPane(candidateTable), BorderLayout.CENTER);
+        candidateTable.setRowHeight(32);
+        candidateTable.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        candidateTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 14));
+        candidateTable.getTableHeader().setBackground(new Color(240, 240, 240));
+        candidateTable.setSelectionBackground(new Color(220, 237, 255));
 
-        // Listen for updates and push to DB
+        JScrollPane scrollPane = new JScrollPane(candidateTable);
+        scrollPane.setBorder(BorderFactory.createLineBorder(new Color(220, 220, 220)));
+        panel.add(scrollPane, BorderLayout.CENTER);
+
         candidateModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && conn != null) {
-                if (!checkConnectionBeforeOperation()) return;
-                
+                if (!checkConnectionBeforeOperation()) {
+                    return;
+                }
+
                 int row = e.getFirstRow();
                 int column = e.getColumn();
                 if (row >= 0 && (column == 0 || column == 1)) {
                     String newValue = candidateModel.getValueAt(row, column).toString();
 
-                    // Determine old values
                     String oldParty = candidateModel.getValueAt(row, 0).toString();
                     String oldCandidate = candidateModel.getValueAt(row, 1).toString();
 
-                    // Determine region/province for Regional/Provincial ballots
                     String regionOrProvince = "";
                     if (currentTable.equalsIgnoreCase("RegionalBallot")) {
-                        // Assuming the 3rd column stores the region
                         regionOrProvince = candidateModel.getValueAt(row, 2).toString();
                     } else if (currentTable.equalsIgnoreCase("ProvincialBallot")) {
-                        // Assuming the 3rd column stores the province
                         regionOrProvince = candidateModel.getValueAt(row, 2).toString();
                     }
 
@@ -480,55 +502,79 @@ public class AdminDashboard extends JFrame {
             }
         });
 
-        JPanel buttonPanel = new JPanel();
-        JButton addBtn = new JButton("➕ Add Candidate");
-        JButton deleteBtn = new JButton("🗑 Delete Candidate");
-        JButton refreshBtn = new JButton("🔄 Refresh List");
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        buttonPanel.setBackground(Color.WHITE);
+
+        JButton addBtn = createActionButton("Add Candidate", new Color(0, 87, 183));
+        JButton refreshBtn = createActionButton("Refresh", new Color(0, 87, 183));
 
         addBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             addCandidate();
         });
-        deleteBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
-            deleteCandidate();
-        });
         refreshBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadCandidates();
         });
 
         buttonPanel.add(addBtn);
-        buttonPanel.add(deleteBtn);
         buttonPanel.add(refreshBtn);
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         return panel;
     }
 
-    // ✅ NEW: Search candidates across all ballots
+    private JButton createActionButton(String text, Color color) {
+        JButton button = new JButton(text);
+        button.setBackground(color);
+        button.setForeground(Color.WHITE);
+        button.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        button.setFocusPainted(false);
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(color.darker(), 1),
+                BorderFactory.createEmptyBorder(8, 15, 8, 15)
+        ));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        button.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseEntered(java.awt.event.MouseEvent evt) {
+                button.setBackground(color.brighter());
+            }
+
+            public void mouseExited(java.awt.event.MouseEvent evt) {
+                button.setBackground(color);
+            }
+        });
+
+        return button;
+    }
+
     private void searchAllCandidates() {
         String searchTerm = candidateSearchField.getText().trim();
         if (searchTerm.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "⚠️ Please enter a search term.");
+            JOptionPane.showMessageDialog(this, "Please enter a search term.");
             return;
         }
 
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         candidateModel.setRowCount(0);
         if (conn != null) {
             try {
                 List<Vector<Object>> candidates = AdminDatabaseLogic.searchCandidates(conn, searchTerm);
                 if (candidates.isEmpty()) {
-                    JOptionPane.showMessageDialog(this, "❌ No candidates found matching: " + searchTerm);
+                    JOptionPane.showMessageDialog(this, "No candidates found matching: " + searchTerm);
                 } else {
-                    // Change columns to include ballot type
                     candidateModel.setColumnIdentifiers(new String[]{"Party", "Candidate", "Ballot Type", "Votes"});
                     for (Vector<Object> row : candidates) {
                         candidateModel.addRow(row);
                     }
-                    JOptionPane.showMessageDialog(this, "✅ Found " + candidates.size() + " candidates across all ballots matching: " + searchTerm);
                 }
             } catch (Exception e) {
                 handleDatabaseError(e);
@@ -536,7 +582,6 @@ public class AdminDashboard extends JFrame {
         }
     }
 
-    // ✅ ENHANCED: Search candidates in current ballot
     private void searchCandidates() {
         String searchTerm = candidateSearchField.getText().trim();
         if (searchTerm.isEmpty()) {
@@ -544,34 +589,113 @@ public class AdminDashboard extends JFrame {
             return;
         }
 
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         candidateModel.setRowCount(0);
         if (conn != null) {
             try {
-                // For single ballot search, we'll filter the existing data
-                List<Vector<Object>> allCandidates = AdminDatabaseLogic.getAllCandidatesFromTable(conn, currentTable);
                 List<Vector<Object>> filteredCandidates = new ArrayList<>();
-                
                 String lowerSearch = searchTerm.toLowerCase();
-                for (Vector<Object> row : allCandidates) {
-                    String party = row.get(0).toString().toLowerCase();
-                    String candidate = row.get(1).toString().toLowerCase();
-                    
-                    if (party.contains(lowerSearch) || candidate.contains(lowerSearch) ||
-                        (party + " " + candidate).contains(lowerSearch) ||
-                        (candidate + " " + party).contains(lowerSearch)) {
-                        filteredCandidates.add(row);
+
+                if (currentTable.equals("NationalBallot")) {
+                    String sql = "SELECT nb.party_name, nb.candidate_name, COALESCE(v.vote_count, 0) as votes "
+                            + "FROM NationalBallot nb "
+                            + "LEFT JOIN (SELECT party_name, COUNT(*) as vote_count FROM Votes WHERE category='National' GROUP BY party_name) v "
+                            + "ON nb.party_name = v.party_name "
+                            + "WHERE LOWER(nb.party_name) LIKE ? OR LOWER(nb.candidate_name) LIKE ?";
+
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        String searchPattern = "%" + lowerSearch + "%";
+                        stmt.setString(1, searchPattern);
+                        stmt.setString(2, searchPattern);
+
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            while (rs.next()) {
+                                Vector<Object> row = new Vector<>();
+                                row.add(rs.getString("party_name"));
+                                row.add(rs.getString("candidate_name"));
+                                row.add(rs.getInt("votes"));
+                                filteredCandidates.add(row);
+                            }
+                        }
+                    }
+
+                } else if (currentTable.equals("RegionalBallot")) {
+                    String sql = "SELECT rb.party_name, rb.candidate_name, rb.region, COALESCE(v.vote_count, 0) as votes "
+                            + "FROM RegionalBallot rb "
+                            + "LEFT JOIN (SELECT party_name, COUNT(*) as vote_count FROM Votes WHERE category='Regional' GROUP BY party_name) v "
+                            + "ON rb.party_name = v.party_name "
+                            + "WHERE LOWER(rb.party_name) LIKE ? OR LOWER(rb.candidate_name) LIKE ? OR LOWER(rb.region) LIKE ?";
+
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        String searchPattern = "%" + lowerSearch + "%";
+                        stmt.setString(1, searchPattern);
+                        stmt.setString(2, searchPattern);
+                        stmt.setString(3, searchPattern);
+
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            while (rs.next()) {
+                                Vector<Object> row = new Vector<>();
+                                row.add(rs.getString("party_name"));
+                                row.add(rs.getString("candidate_name"));
+                                row.add(rs.getString("region"));
+                                row.add(rs.getInt("votes"));
+                                filteredCandidates.add(row);
+                            }
+                        }
+                    }
+
+                } else if (currentTable.equals("ProvincialBallot")) {
+                    String sql = "SELECT pb.party_name, pb.candidate_name, pb.province, COALESCE(v.vote_count, 0) as votes "
+                            + "FROM ProvincialBallot pb "
+                            + "LEFT JOIN (SELECT party_name, COUNT(*) as vote_count FROM Votes WHERE category='Provincial' GROUP BY party_name) v "
+                            + "ON pb.party_name = v.party_name "
+                            + "WHERE LOWER(pb.party_name) LIKE ? OR LOWER(pb.candidate_name) LIKE ? OR LOWER(pb.province) LIKE ?";
+
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        String searchPattern = "%" + lowerSearch + "%";
+                        stmt.setString(1, searchPattern);
+                        stmt.setString(2, searchPattern);
+                        stmt.setString(3, searchPattern);
+
+                        try (ResultSet rs = stmt.executeQuery()) {
+                            while (rs.next()) {
+                                Vector<Object> row = new Vector<>();
+                                row.add(rs.getString("party_name"));
+                                row.add(rs.getString("candidate_name"));
+                                row.add(rs.getString("province"));
+                                row.add(rs.getInt("votes"));
+                                filteredCandidates.add(row);
+                            }
+                        }
                     }
                 }
-                
+
                 if (filteredCandidates.isEmpty()) {
-                    JOptionPane.showMessageDialog(this, "❌ No candidates found in " + currentTable.replace("Ballot", "") + " ballot matching: " + searchTerm);
+                    JOptionPane.showMessageDialog(this, "No candidates found in " + currentTable.replace("Ballot", "") + " ballot matching: " + searchTerm);
                 } else {
+                    String[] columnNames;
+                    switch (currentTable) {
+                        case "NationalBallot":
+                            columnNames = new String[]{"Party", "Candidate", "National Votes"};
+                            break;
+                        case "RegionalBallot":
+                            columnNames = new String[]{"Party", "Candidate", "Region", "Regional Votes"};
+                            break;
+                        case "ProvincialBallot":
+                            columnNames = new String[]{"Party", "Candidate", "Province", "Provincial Votes"};
+                            break;
+                        default:
+                            columnNames = new String[]{"Party", "Candidate", "Number of Votes"};
+                    }
+
+                    candidateModel.setColumnIdentifiers(columnNames);
+
                     for (Vector<Object> row : filteredCandidates) {
                         candidateModel.addRow(row);
                     }
-                    JOptionPane.showMessageDialog(this, "✅ Found " + filteredCandidates.size() + " candidates in " + currentTable.replace("Ballot", "") + " ballot matching: " + searchTerm);
                 }
             } catch (Exception e) {
                 handleDatabaseError(e);
@@ -581,14 +705,22 @@ public class AdminDashboard extends JFrame {
 
     private void addCategoryTab(String tableName) {
         JButton tab = new JButton(tableName.replace("Ballot", ""));
-        tab.setFocusPainted(false);
+        tab.setFont(new Font("Segoe UI", Font.BOLD, 14));
         tab.setBackground(Color.LIGHT_GRAY);
+        tab.setForeground(Color.BLACK);
+        tab.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Color.DARK_GRAY, 1),
+                BorderFactory.createEmptyBorder(10, 20, 10, 20)
+        ));
+        tab.setFocusPainted(false);
         tab.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         tab.addActionListener(e -> {
             currentTable = tableName;
             highlightActiveTab(tab);
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadCandidates();
         });
 
@@ -601,17 +733,36 @@ public class AdminDashboard extends JFrame {
     private void highlightActiveTab(JButton activeTab) {
         for (Component comp : categoryTabs.getComponents()) {
             if (comp instanceof JButton) {
-                comp.setBackground(comp == activeTab ? Color.YELLOW : Color.LIGHT_GRAY);
+                JButton tab = (JButton) comp;
+                if (tab == activeTab) {
+                    tab.setBackground(new Color(255, 209, 0));
+                    tab.setForeground(Color.BLACK);
+                    tab.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(Color.DARK_GRAY, 2),
+                            BorderFactory.createEmptyBorder(10, 20, 10, 20)
+                    ));
+                    tab.setFont(new Font("Segoe UI", Font.BOLD, 14));
+                } else {
+                    tab.setBackground(Color.LIGHT_GRAY);
+                    tab.setForeground(Color.BLACK);
+                    tab.setBorder(BorderFactory.createCompoundBorder(
+                            BorderFactory.createLineBorder(Color.GRAY, 1),
+                            BorderFactory.createEmptyBorder(10, 20, 10, 20)
+                    ));
+                    tab.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                }
             }
         }
     }
 
     private void loadCandidates() {
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         candidateModel.setRowCount(0);
         candidateModel.setColumnIdentifiers(new String[]{"Party", "Candidate", "Number of Votes"});
-        
+
         if (conn != null) {
             try {
                 List<Vector<Object>> candidates = AdminDatabaseLogic.getAllCandidatesFromTable(conn, currentTable);
@@ -625,110 +776,275 @@ public class AdminDashboard extends JFrame {
     }
 
     private void addCandidate() {
-        if (!checkConnectionBeforeOperation()) return;
-        
-        // Full, updated version with images, region, and ballot selection
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        mainPanel.setBackground(Color.WHITE);
+
+        JLabel headerLabel = new JLabel("Add New Candidate", JLabel.CENTER);
+        headerLabel.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        headerLabel.setForeground(new Color(0, 87, 183));
+        headerLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 15, 0));
+        mainPanel.add(headerLabel, BorderLayout.NORTH);
+
+        JPanel formPanel = new JPanel(new GridBagLayout());
+        formPanel.setBackground(Color.WHITE);
+        formPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                "Candidate Details"
+        ));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        JPanel typePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
+        typePanel.setBackground(Color.WHITE);
+        JLabel typeLabel = new JLabel("Candidate Type:");
+        typeLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+
         JRadioButton partySupportedBtn = new JRadioButton("Party Supported");
-        JRadioButton independentBtn = new JRadioButton("Independent");
+        JRadioButton independentBtn = new JRadioButton("Independent Candidate");
         ButtonGroup candidateTypeGroup = new ButtonGroup();
         candidateTypeGroup.add(partySupportedBtn);
         candidateTypeGroup.add(independentBtn);
         partySupportedBtn.setSelected(true);
 
-        JTextField partyField = new JTextField();
-        JTextField candidateNameField = new JTextField();
+        partySupportedBtn.setBackground(Color.WHITE);
+        independentBtn.setBackground(Color.WHITE);
+        partySupportedBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        independentBtn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
 
-        String[] regions = {"Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape",
-            "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape"};
-        String[] provinces = regions;
+        typePanel.add(typeLabel);
+        typePanel.add(partySupportedBtn);
+        typePanel.add(independentBtn);
 
-        JComboBox<String> regionDropdown = new JComboBox<>(regions);
-        JComboBox<String> provinceDropdown = new JComboBox<>(provinces);
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.gridwidth = 2;
+        formPanel.add(typePanel, gbc);
+
+        JLabel partyLabel = new JLabel("Party Abbreviation:");
+        partyLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JTextField partyField = new JTextField(20);
+        partyField.setToolTipText("Enter party abbreviation (e.g., ANC, DA, EFF)");
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.gridwidth = 1;
+        formPanel.add(partyLabel, gbc);
+        gbc.gridx = 1;
+        gbc.gridwidth = 1;
+        formPanel.add(partyField, gbc);
+
+        JLabel nameLabel = new JLabel("Candidate Full Name:");
+        nameLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JTextField candidateNameField = new JTextField(20);
+        candidateNameField.setToolTipText("Enter candidate's full name");
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 1;
+        formPanel.add(nameLabel, gbc);
+        gbc.gridx = 1;
+        formPanel.add(candidateNameField, gbc);
+
+        JPanel ballotPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 5));
+        ballotPanel.setBackground(Color.WHITE);
+        JLabel ballotLabel = new JLabel("Select Ballots:");
+        ballotLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
 
         JCheckBox nationalBox = new JCheckBox("National");
         JCheckBox regionalBox = new JCheckBox("Regional");
         JCheckBox provincialBox = new JCheckBox("Provincial");
 
-        JButton partyLogoButton = new JButton("Select Party Logo");
-        JButton candidateFaceButton = new JButton("Select Candidate Face");
-        JLabel partyLogoLabel = new JLabel("No image selected");
-        JLabel candidateFaceLabel = new JLabel("No image selected");
+        nationalBox.setBackground(Color.WHITE);
+        regionalBox.setBackground(Color.WHITE);
+        provincialBox.setBackground(Color.WHITE);
+        nationalBox.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        regionalBox.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        provincialBox.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+
+        ballotPanel.add(ballotLabel);
+        ballotPanel.add(nationalBox);
+        ballotPanel.add(regionalBox);
+        ballotPanel.add(provincialBox);
+
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 2;
+        formPanel.add(ballotPanel, gbc);
+
+        String[] regions = {"Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape",
+            "Free State", "Limpopo", "Mpumalanga", "North West", "Northern Cape"};
+        String[] provinces = regions;
+
+        JLabel regionLabel = new JLabel("Region:");
+        regionLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JComboBox<String> regionDropdown = new JComboBox<>(regions);
+        regionDropdown.setEnabled(false);
+
+        JLabel provinceLabel = new JLabel("Province:");
+        provinceLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        JComboBox<String> provinceDropdown = new JComboBox<>(provinces);
+        provinceDropdown.setEnabled(false);
+
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        gbc.gridwidth = 1;
+        formPanel.add(regionLabel, gbc);
+        gbc.gridx = 1;
+        formPanel.add(regionDropdown, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 5;
+        formPanel.add(provinceLabel, gbc);
+        gbc.gridx = 1;
+        formPanel.add(provinceDropdown, gbc);
+
+        JPanel imagePanel = new JPanel(new GridLayout(2, 2, 10, 10));
+        imagePanel.setBackground(Color.WHITE);
+        imagePanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                "Upload Images"
+        ));
+
+        JButton partyLogoButton = createImageButton("Select Party Logo", new Color(0, 87, 183));
+        JButton candidateFaceButton = createImageButton("Select Candidate Photo", new Color(0, 87, 183));
+
+        JLabel partyLogoLabel = new JLabel("No logo selected", JLabel.CENTER);
+        JLabel candidateFaceLabel = new JLabel("No photo selected", JLabel.CENTER);
+
+        partyLogoLabel.setForeground(Color.GRAY);
+        candidateFaceLabel.setForeground(Color.GRAY);
+        partyLogoLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+        candidateFaceLabel.setFont(new Font("Segoe UI", Font.ITALIC, 11));
+
+        imagePanel.add(partyLogoButton);
+        imagePanel.add(candidateFaceButton);
+        imagePanel.add(partyLogoLabel);
+        imagePanel.add(candidateFaceLabel);
+
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.gridwidth = 2;
+        formPanel.add(imagePanel, gbc);
+
         final byte[][] partyLogoData = new byte[1][1];
         final byte[][] candidateFaceData = new byte[1][1];
 
         partyLogoButton.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Select Party Logo");
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    "Image files", "jpg", "jpeg", "png", "gif"));
+
             if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 try {
                     java.io.File file = chooser.getSelectedFile();
                     partyLogoData[0] = java.nio.file.Files.readAllBytes(file.toPath());
-                    partyLogoLabel.setText(file.getName() + " selected");
+                    partyLogoLabel.setText(file.getName());
+                    partyLogoLabel.setForeground(Color.BLACK);
+                    partyLogoLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(this, "Failed to read party logo: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(this, "Failed to read party logo: " + ex.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
 
         candidateFaceButton.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle("Select Candidate Photo");
+            chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                    "Image files", "jpg", "jpeg", "png", "gif"));
+
             if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 try {
                     java.io.File file = chooser.getSelectedFile();
                     candidateFaceData[0] = java.nio.file.Files.readAllBytes(file.toPath());
-                    candidateFaceLabel.setText(file.getName() + " selected");
+                    candidateFaceLabel.setText(file.getName());
+                    candidateFaceLabel.setForeground(Color.BLACK);
+                    candidateFaceLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(this, "Failed to read candidate image: " + ex.getMessage());
+                    JOptionPane.showMessageDialog(this, "Failed to read candidate image: " + ex.getMessage(),
+                            "Error", JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
 
-        JPanel panel = new JPanel(new GridLayout(0, 1));
-        panel.add(partySupportedBtn);
-        panel.add(independentBtn);
-        panel.add(new JLabel("Party Abbreviation/Independent Name:"));
-        panel.add(partyField);
-        panel.add(new JLabel("Candidate Name:"));
-        panel.add(candidateNameField);
-        panel.add(new JLabel("Select Ballots:"));
-        panel.add(nationalBox);
-        panel.add(regionalBox);
-        panel.add(provincialBox);
-        panel.add(new JLabel("Region:"));
-        panel.add(regionDropdown);
-        panel.add(new JLabel("Province:"));
-        panel.add(provinceDropdown);
-        panel.add(partyLogoButton);
-        panel.add(partyLogoLabel);
-        panel.add(candidateFaceButton);
-        panel.add(candidateFaceLabel);
+        mainPanel.add(formPanel, BorderLayout.CENTER);
 
         ActionListener toggleFields = e -> {
             boolean isParty = partySupportedBtn.isSelected();
+            partyLabel.setVisible(isParty);
             partyField.setVisible(isParty);
             partyLogoButton.setVisible(isParty);
             partyLogoLabel.setVisible(isParty);
 
-            regionDropdown.setVisible(regionalBox.isSelected());
-            provinceDropdown.setVisible(provincialBox.isSelected());
+            boolean showRegion = regionalBox.isSelected();
+            boolean showProvince = provincialBox.isSelected();
 
-            panel.revalidate();
-            panel.repaint();
+            regionLabel.setVisible(showRegion);
+            regionDropdown.setVisible(showRegion);
+            regionDropdown.setEnabled(showRegion);
+
+            provinceLabel.setVisible(showProvince);
+            provinceDropdown.setVisible(showProvince);
+            provinceDropdown.setEnabled(showProvince);
+
+            mainPanel.revalidate();
+            mainPanel.repaint();
         };
 
         partySupportedBtn.addActionListener(toggleFields);
         independentBtn.addActionListener(toggleFields);
         regionalBox.addActionListener(toggleFields);
         provincialBox.addActionListener(toggleFields);
+
         toggleFields.actionPerformed(null);
 
-        int result = JOptionPane.showConfirmDialog(this, panel, "Add Candidate", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int result = JOptionPane.showConfirmDialog(this, mainPanel,
+                "Add New Candidate - Voting System",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE);
+
         if (result == JOptionPane.OK_OPTION) {
-            if (candidateFaceData[0] == null || candidateFaceData[0].length == 0) {
-                JOptionPane.showMessageDialog(this, "You must select a candidate image.");
+            if (candidateNameField.getText().trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Please enter candidate name.",
+                        "Validation Error",
+                        JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
-            String partyName = partySupportedBtn.isSelected() ? partyField.getText().trim() : "";
+            if (partySupportedBtn.isSelected() && partyField.getText().trim().isEmpty()) {
+                JOptionPane.showMessageDialog(this,
+                        "Please enter party abbreviation for party-supported candidate.",
+                        "Validation Error",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            if (candidateFaceData[0] == null || candidateFaceData[0].length == 0) {
+                JOptionPane.showMessageDialog(this,
+                        "Please select a candidate photo.",
+                        "Validation Error",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            if (!nationalBox.isSelected() && !regionalBox.isSelected() && !provincialBox.isSelected()) {
+                JOptionPane.showMessageDialog(this,
+                        "Please select at least one ballot type.",
+                        "Validation Error",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            String partyName = partySupportedBtn.isSelected() ? partyField.getText().trim() : "Independent";
             String candidateName = candidateNameField.getText().trim();
             String value = "";
             if (regionalBox.isSelected()) {
@@ -746,7 +1062,7 @@ public class AdminDashboard extends JFrame {
                         regionalBox.isSelected(),
                         provincialBox.isSelected(),
                         candidateFaceData[0],
-                        partyLogoData[0],
+                        partySupportedBtn.isSelected() ? partyLogoData[0] : null,
                         !partySupportedBtn.isSelected(),
                         value
                 );
@@ -760,9 +1076,33 @@ public class AdminDashboard extends JFrame {
         }
     }
 
+    private JButton createImageButton(String text, Color color) {
+        JButton button = new JButton(text);
+        button.setBackground(color);
+        button.setForeground(Color.WHITE);
+        button.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        button.setFocusPainted(false);
+        button.setBorder(BorderFactory.createEmptyBorder(8, 15, 8, 15));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        button.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseEntered(java.awt.event.MouseEvent evt) {
+                button.setBackground(color.brighter());
+            }
+
+            public void mouseExited(java.awt.event.MouseEvent evt) {
+                button.setBackground(color);
+            }
+        });
+
+        return button;
+    }
+
     private void deleteCandidate() {
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         int selectedRow = candidateTable.getSelectedRow();
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(this, "Please select a candidate to delete.");
@@ -789,34 +1129,45 @@ public class AdminDashboard extends JFrame {
     }
 
     private JPanel createVoterPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        
-        // ✅ ENHANCED: Search panel for voters
-        JPanel searchPanel = new JPanel(new BorderLayout());
-        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        searchPanel.setBackground(Color.WHITE);
-        
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        JPanel searchPanel = new JPanel(new BorderLayout(10, 10));
+        searchPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Search Voters"),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+        searchPanel.setBackground(new Color(248, 248, 248));
+
         JLabel searchLabel = new JLabel("Search Voters:");
+        searchLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
         voterSearchField = new JTextField(25);
+        voterSearchField.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         voterSearchField.setToolTipText("Search by name, surname, ID number, voting status. Examples: 'John', '990101', 'voted', 'not voted'");
-        
-        JButton searchBtn = new JButton("Search");
-        JButton clearSearchBtn = new JButton("Clear");
-        
+        voterSearchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                BorderFactory.createEmptyBorder(5, 8, 5, 8)
+        ));
+
+        JButton searchBtn = createActionButton("Search", new Color(0, 87, 183));
+        JButton clearSearchBtn = createActionButton("Clear", new Color(120, 120, 120));
+
         searchBtn.addActionListener(e -> searchVoters());
         clearSearchBtn.addActionListener(e -> {
             voterSearchField.setText("");
             loadVoters();
         });
-        
-        JPanel searchButtonPanel = new JPanel();
+
+        JPanel searchButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        searchButtonPanel.setBackground(new Color(248, 248, 248));
         searchButtonPanel.add(searchBtn);
         searchButtonPanel.add(clearSearchBtn);
-        
+
         searchPanel.add(searchLabel, BorderLayout.WEST);
         searchPanel.add(voterSearchField, BorderLayout.CENTER);
         searchPanel.add(searchButtonPanel, BorderLayout.EAST);
-        
+
         panel.add(searchPanel, BorderLayout.NORTH);
 
         String[] columns = {"Name", "Surname", "ID Number", "Fingerprint", "Has Voted"};
@@ -827,14 +1178,22 @@ public class AdminDashboard extends JFrame {
             }
         };
         voterTable = new JTable(voterModel);
-        voterTable.setRowHeight(26);
-        voterTable.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        panel.add(new JScrollPane(voterTable), BorderLayout.CENTER);
+        voterTable.setRowHeight(32);
+        voterTable.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        voterTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 14));
+        voterTable.getTableHeader().setBackground(new Color(240, 240, 240));
+        voterTable.setSelectionBackground(new Color(220, 237, 255));
+
+        JScrollPane scrollPane = new JScrollPane(voterTable);
+        scrollPane.setBorder(BorderFactory.createLineBorder(new Color(220, 220, 220)));
+        panel.add(scrollPane, BorderLayout.CENTER);
 
         voterModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && conn != null) {
-                if (!checkConnectionBeforeOperation()) return;
-                
+                if (!checkConnectionBeforeOperation()) {
+                    return;
+                }
+
                 int row = e.getFirstRow();
                 int column = e.getColumn();
                 if (row >= 0 && (column == 0 || column == 1)) {
@@ -849,13 +1208,16 @@ public class AdminDashboard extends JFrame {
             }
         });
 
-        JPanel buttonPanel = new JPanel();
-        JButton addBtn = new JButton("Add Voter");
-        JButton deleteBtn = new JButton("Delete Voter");
-        JButton refreshBtn = new JButton("Refresh");
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        buttonPanel.setBackground(Color.WHITE);
+
+        JButton addBtn = createActionButton("Add Voter", new Color(0, 87, 183));
+        JButton refreshBtn = createActionButton("Refresh", new Color(0, 87, 183));
 
         addBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             try {
                 ReaderCollection collection = UareUGlobal.GetReaderCollection();
                 collection.GetReaders();
@@ -874,22 +1236,14 @@ public class AdminDashboard extends JFrame {
             }
         });
 
-        deleteBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
-            deleteVoter();
-        });
         refreshBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadVoters();
         });
 
         buttonPanel.add(addBtn);
-        /*
-        ================================================================
-        REMOVED DELETE BUTTON
-        ================================================================
-        */
-        //buttonPanel.add(deleteBtn);
         buttonPanel.add(refreshBtn);
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -903,8 +1257,10 @@ public class AdminDashboard extends JFrame {
             return;
         }
 
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         voterModel.setRowCount(0);
         if (conn != null) {
             try {
@@ -923,33 +1279,45 @@ public class AdminDashboard extends JFrame {
     }
 
     private JPanel createStatsPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        
-        JPanel searchPanel = new JPanel(new BorderLayout());
-        searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        searchPanel.setBackground(Color.WHITE);
-        
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+
+        JPanel searchPanel = new JPanel(new BorderLayout(10, 10));
+        searchPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createTitledBorder("Search Statistics"),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+        searchPanel.setBackground(new Color(248, 248, 248));
+
         JLabel searchLabel = new JLabel("Search Statistics:");
+        searchLabel.setFont(new Font("Segoe UI", Font.BOLD, 12));
         statsSearchField = new JTextField(25);
+        statsSearchField.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         statsSearchField.setToolTipText("Search by party name. Examples: 'ANC', 'DA', 'EFF'");
-        
-        JButton searchBtn = new JButton("Search");
-        JButton clearSearchBtn = new JButton("Clear");
-        
+        statsSearchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(200, 200, 200)),
+                BorderFactory.createEmptyBorder(5, 8, 5, 8)
+        ));
+
+        JButton searchBtn = createActionButton("Search", new Color(0, 87, 183));
+        JButton clearSearchBtn = createActionButton("Clear", new Color(120, 120, 120));
+
         searchBtn.addActionListener(e -> searchStats());
         clearSearchBtn.addActionListener(e -> {
             statsSearchField.setText("");
             loadStats();
         });
-        
-        JPanel searchButtonPanel = new JPanel();
+
+        JPanel searchButtonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        searchButtonPanel.setBackground(new Color(248, 248, 248));
         searchButtonPanel.add(searchBtn);
         searchButtonPanel.add(clearSearchBtn);
-        
+
         searchPanel.add(searchLabel, BorderLayout.WEST);
         searchPanel.add(statsSearchField, BorderLayout.CENTER);
         searchPanel.add(searchButtonPanel, BorderLayout.EAST);
-        
+
         panel.add(searchPanel, BorderLayout.NORTH);
 
         String[] columns = {"Party", "Total Votes", "Votes Today"};
@@ -960,17 +1328,28 @@ public class AdminDashboard extends JFrame {
             }
         };
         statsTable = new JTable(statsModel);
-        statsTable.setRowHeight(28);
-        panel.add(new JScrollPane(statsTable), BorderLayout.CENTER);
+        statsTable.setRowHeight(32);
+        statsTable.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        statsTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 14));
+        statsTable.getTableHeader().setBackground(new Color(240, 240, 240));
+        statsTable.setSelectionBackground(new Color(220, 237, 255));
 
-        JButton refreshBtn = new JButton("Refresh");
+        JScrollPane scrollPane = new JScrollPane(statsTable);
+        scrollPane.setBorder(BorderFactory.createLineBorder(new Color(220, 220, 220)));
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        JButton refreshBtn = createActionButton("Refresh", new Color(0, 87, 183));
         refreshBtn.addActionListener(e -> {
-            if (!checkConnectionBeforeOperation()) return;
+            if (!checkConnectionBeforeOperation()) {
+                return;
+            }
             loadStats();
         });
-        JPanel southPanel = new JPanel();
-        southPanel.add(refreshBtn);
-        panel.add(southPanel, BorderLayout.SOUTH);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        buttonPanel.setBackground(Color.WHITE);
+        buttonPanel.add(refreshBtn);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
 
         return panel;
     }
@@ -982,14 +1361,16 @@ public class AdminDashboard extends JFrame {
             return;
         }
 
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         statsModel.setRowCount(0);
         if (conn != null) {
             try {
                 List<Vector<Object>> allStats = AdminDatabaseLogic.getVoteStatistics(conn);
                 List<Vector<Object>> filteredStats = new ArrayList<>();
-                
+
                 String lowerSearch = searchTerm.toLowerCase();
                 for (Vector<Object> row : allStats) {
                     String party = row.get(0).toString().toLowerCase();
@@ -997,7 +1378,7 @@ public class AdminDashboard extends JFrame {
                         filteredStats.add(row);
                     }
                 }
-                
+
                 if (filteredStats.isEmpty()) {
                     JOptionPane.showMessageDialog(this, "No statistics found for keyword: " + searchTerm);
                 } else {
@@ -1012,8 +1393,10 @@ public class AdminDashboard extends JFrame {
     }
 
     private void loadStats() {
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         statsModel.setRowCount(0);
         if (conn != null) {
             try {
@@ -1028,8 +1411,10 @@ public class AdminDashboard extends JFrame {
     }
 
     private void loadVoters() {
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         voterModel.setRowCount(0);
         if (conn != null) {
             try {
@@ -1044,8 +1429,10 @@ public class AdminDashboard extends JFrame {
     }
 
     private void deleteVoter() {
-        if (!checkConnectionBeforeOperation()) return;
-        
+        if (!checkConnectionBeforeOperation()) {
+            return;
+        }
+
         int selectedRow = voterTable.getSelectedRow();
         if (selectedRow == -1) {
             JOptionPane.showMessageDialog(this, "Please select a voter to delete.");
