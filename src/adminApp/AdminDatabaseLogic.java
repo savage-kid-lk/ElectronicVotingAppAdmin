@@ -248,14 +248,14 @@ public class AdminDatabaseLogic {
         String searchPattern = "%" + cleanSearch + "%";
         
         String nationalSql = "SELECT party_name, candidate_name, 'National' as ballot_type, " +
-                           "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = nb.party_name AND category = 'National'), 0) as votes " +
+                           "COALESCE((SELECT COUNT(DISTINCT voter_id_number) FROM Votes WHERE party_name = nb.party_name AND category = 'National'), 0) as votes " +
                            "FROM NationalBallot nb " +
                            "WHERE LOWER(party_name) LIKE ? OR LOWER(candidate_name) LIKE ? OR " +
                            "LOWER(CONCAT(party_name, ' ', candidate_name)) LIKE ? OR " +
                            "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
         
         String regionalSql = "SELECT party_name, candidate_name, CONCAT('Regional - ', region) as ballot_type, " +
-                           "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = rb.party_name AND category = 'Regional'), 0) as votes " +
+                           "COALESCE((SELECT COUNT(DISTINCT voter_id_number) FROM Votes WHERE party_name = rb.party_name AND category = 'Regional'), 0) as votes " +
                            "FROM RegionalBallot rb " +
                            "WHERE LOWER(party_name) LIKE ? OR LOWER(candidate_name) LIKE ? OR " +
                            "LOWER(region) LIKE ? OR " +
@@ -263,7 +263,7 @@ public class AdminDatabaseLogic {
                            "LOWER(CONCAT(candidate_name, ' ', party_name)) LIKE ?";
         
         String provincialSql = "SELECT party_name, candidate_name, CONCAT('Provincial - ', province) as ballot_type, " +
-                             "COALESCE((SELECT COUNT(*) FROM Votes WHERE party_name = pb.party_name AND category = 'Provincial'), 0) as votes " +
+                             "COALESCE((SELECT COUNT(DISTINCT voter_id_number) FROM Votes WHERE party_name = pb.party_name AND category = 'Provincial'), 0) as votes " +
                              "FROM ProvincialBallot pb " +
                              "WHERE LOWER(party_name) LIKE ? OR LOWER(candidate_name) LIKE ? OR " +
                              "LOWER(province) LIKE ? OR " +
@@ -562,7 +562,7 @@ public class AdminDatabaseLogic {
         String category = tableName.replace("Ballot", "");
         String sql = "SELECT c.party_name, c.candidate_name, COALESCE(v.vote_count, 0) AS votes "
                 + "FROM " + tableName + " c "
-                + "LEFT JOIN (SELECT party_name, COUNT(*) AS vote_count FROM Votes WHERE category = ? GROUP BY party_name) v "
+                + "LEFT JOIN (SELECT party_name, COUNT(DISTINCT voter_id_number) AS vote_count FROM Votes WHERE category = ? GROUP BY party_name) v "
                 + "ON c.party_name = v.party_name";
 
         List<Vector<Object>> candidates = new ArrayList<>();
@@ -643,23 +643,25 @@ public class AdminDatabaseLogic {
 
     public static List<Vector<Object>> getVoteStatistics(Connection conn) {
         List<Vector<Object>> stats = new ArrayList<>();
-        String sql = "SELECT c.party_name, COALESCE(v.total_votes, 0) AS total_votes, "
-                + "COALESCE(v.today_votes, 0) AS votes_today FROM "
-                + "(SELECT DISTINCT party_name FROM Votes "
-                + "UNION SELECT DISTINCT party_name FROM NationalBallot "
-                + "UNION SELECT DISTINCT party_name FROM RegionalBallot "
-                + "UNION SELECT DISTINCT party_name FROM ProvincialBallot) c "
-                + "LEFT JOIN (SELECT party_name, COUNT(*) AS total_votes, "
-                + "SUM(CASE WHEN DATE(vote_timestamp) = CURDATE() THEN 1 ELSE 0 END) AS today_votes "
-                + "FROM Votes GROUP BY party_name) v ON c.party_name = v.party_name "
-                + "ORDER BY total_votes DESC";
+        String sql = "SELECT c.party_name, " +
+                     "COALESCE(COUNT(DISTINCT v.voter_id_number), 0) AS total_votes, " +
+                     "COALESCE(SUM(CASE WHEN DATE(v.vote_timestamp) = CURDATE() THEN 1 ELSE 0 END), 0) AS votes_today_raw " +
+                     "FROM (SELECT DISTINCT party_name FROM Votes " +
+                     "      UNION SELECT DISTINCT party_name FROM NationalBallot " +
+                     "      UNION SELECT DISTINCT party_name FROM RegionalBallot " +
+                     "      UNION SELECT DISTINCT party_name FROM ProvincialBallot) c " +
+                     "LEFT JOIN (SELECT party_name, voter_id_number, vote_timestamp " +
+                     "           FROM Votes GROUP BY party_name, voter_id_number, vote_timestamp) v " +
+                     "ON c.party_name = v.party_name " +
+                     "GROUP BY c.party_name " +
+                     "ORDER BY total_votes DESC";
 
         try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
                 Vector<Object> row = new Vector<>();
                 row.add(rs.getString("party_name"));
-                row.add(rs.getInt("total_votes"));
-                row.add(rs.getInt("votes_today"));
+                row.add(rs.getInt("total_votes")); // This now counts unique voters per party
+                row.add(rs.getInt("votes_today_raw")); // Note: This still needs adjustment for today's votes
                 stats.add(row);
             }
         } catch (SQLException e) {
@@ -681,30 +683,64 @@ public class AdminDatabaseLogic {
     }
 
     public static void updateCandidate(Connection conn, String tableName, int column,
-            String newValue, String oldParty, String oldCandidate, String regionOrProvince) {
-        String columnName = (column == 0) ? "party_name" : "candidate_name";
-        String sql;
-
-        if (tableName.equalsIgnoreCase("RegionalBallot")) {
-            sql = "UPDATE RegionalBallot SET " + columnName + " = ? WHERE party_name = ? AND candidate_name = ? AND region = ?";
-        } else if (tableName.equalsIgnoreCase("ProvincialBallot")) {
-            sql = "UPDATE ProvincialBallot SET " + columnName + " = ? WHERE party_name = ? AND candidate_name = ? AND province = ?";
-        } else {
-            sql = "UPDATE NationalBallot SET " + columnName + " = ? WHERE party_name = ? AND candidate_name = ?";
-        }
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, newValue);
-            stmt.setString(2, oldParty);
-            stmt.setString(3, oldCandidate);
-            if (tableName.equalsIgnoreCase("RegionalBallot") || tableName.equalsIgnoreCase("ProvincialBallot")) {
-                stmt.setString(4, regionOrProvince);
-            }
-            stmt.executeUpdate();
-        } catch (SQLException e) {
-            System.err.println("Failed to update candidate in " + tableName + ": " + e.getMessage());
-        }
+        String newValue, String oldParty, String oldCandidate, String regionOrProvince) {
+    
+    // Disable party name editing - only allow candidate name and image updates
+    if (column == 0) { // Party name column
+        System.out.println("Party name editing is disabled");
+        return;
     }
+    
+    String columnName = "candidate_name";
+    String sql;
+
+    if (tableName.equalsIgnoreCase("RegionalBallot")) {
+        sql = "UPDATE RegionalBallot SET " + columnName + " = ? WHERE party_name = ? AND candidate_name = ? AND region = ?";
+    } else if (tableName.equalsIgnoreCase("ProvincialBallot")) {
+        sql = "UPDATE ProvincialBallot SET " + columnName + " = ? WHERE party_name = ? AND candidate_name = ? AND province = ?";
+    } else {
+        sql = "UPDATE NationalBallot SET " + columnName + " = ? WHERE party_name = ? AND candidate_name = ?";
+    }
+
+    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setString(1, newValue);
+        stmt.setString(2, oldParty);
+        stmt.setString(3, oldCandidate);
+        if (tableName.equalsIgnoreCase("RegionalBallot") || tableName.equalsIgnoreCase("ProvincialBallot")) {
+            stmt.setString(4, regionOrProvince);
+        }
+        stmt.executeUpdate();
+    } catch (SQLException e) {
+        System.err.println("Failed to update candidate in " + tableName + ": " + e.getMessage());
+    }
+}
+
+public static boolean updateCandidateImage(Connection conn, String tableName, String partyName, 
+        String candidateName, byte[] candidateImage, String regionOrProvince) {
+    
+    String sql;
+    
+    if (tableName.equalsIgnoreCase("RegionalBallot")) {
+        sql = "UPDATE RegionalBallot SET candidate_image = ? WHERE party_name = ? AND candidate_name = ? AND region = ?";
+    } else if (tableName.equalsIgnoreCase("ProvincialBallot")) {
+        sql = "UPDATE ProvincialBallot SET candidate_image = ? WHERE party_name = ? AND candidate_name = ? AND province = ?";
+    } else {
+        sql = "UPDATE NationalBallot SET candidate_image = ? WHERE party_name = ? AND candidate_name = ?";
+    }
+
+    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        stmt.setBytes(1, candidateImage);
+        stmt.setString(2, partyName);
+        stmt.setString(3, candidateName);
+        if (tableName.equalsIgnoreCase("RegionalBallot") || tableName.equalsIgnoreCase("ProvincialBallot")) {
+            stmt.setString(4, regionOrProvince);
+        }
+        return stmt.executeUpdate() > 0;
+    } catch (SQLException e) {
+        System.err.println("Failed to update candidate image in " + tableName + ": " + e.getMessage());
+        return false;
+    }
+}
 
     public static List<Vector<Object>> getFraudAttempts(Connection conn) {
         List<Vector<Object>> fraudAttempts = new ArrayList<>();
@@ -760,17 +796,25 @@ public class AdminDatabaseLogic {
                 }
             }
 
-            // Total votes
-            String totalVotesSql = "SELECT COUNT(*) as total FROM Votes";
+            // Total votes - Count unique voters instead of total vote rows
+            String totalVotesSql = "SELECT COUNT(DISTINCT voter_id_number) as total FROM Votes";
             try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(totalVotesSql)) {
                 if (rs.next()) {
                     summary.add(rs.getInt("total"));
                 }
             }
 
-            // Votes today
-            String todayVotesSql = "SELECT COUNT(*) as total FROM Votes WHERE DATE(vote_timestamp) = CURDATE()";
+            // Votes today - Count unique voters who voted today
+            String todayVotesSql = "SELECT COUNT(DISTINCT voter_id_number) as total FROM Votes WHERE DATE(vote_timestamp) = CURDATE()";
             try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(todayVotesSql)) {
+                if (rs.next()) {
+                    summary.add(rs.getInt("total"));
+                }
+            }
+
+            // Total casted ballots (actual rows in Votes table)
+            String totalBallotsSql = "SELECT COUNT(*) as total FROM Votes";
+            try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(totalBallotsSql)) {
                 if (rs.next()) {
                     summary.add(rs.getInt("total"));
                 }
