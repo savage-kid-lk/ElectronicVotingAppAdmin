@@ -15,6 +15,8 @@ public class AdminLogin extends JFrame {
     public AdminLogin() {
         this.conn = AdminDatabaseConnectivity.getConnection();
 
+        ImageIcon icon = new ImageIcon(getClass().getResource("/appLogo.png"));
+        setIconImage(icon.getImage());
         setTitle("Admin Login");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setExtendedState(JFrame.MAXIMIZED_BOTH);

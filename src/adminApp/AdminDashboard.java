@@ -149,11 +149,13 @@ public class AdminDashboard extends JFrame {
     public AdminDashboard(Connection connection, AdminLogin loginWindow) {
         this.conn = connection;
         this.loginWindow = loginWindow;
+        ImageIcon icon = new ImageIcon(getClass().getResource("/appLogo.png"));
+        setIconImage(icon.getImage());
         initializeUI();
         startAutoRefresh();
         startConnectionMonitoring();
         initializeLoadingDialog();
-        preloadAllData(); // Preload data when dashboard starts
+        preloadAllData();
     }
 
     private void initializeLoadingDialog() {
