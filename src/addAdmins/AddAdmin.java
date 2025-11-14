@@ -171,7 +171,7 @@ public class AddAdmin extends JPanel implements ActionListener {
         gui.doModal(dlg);
     }
 
-    public static void main(String[] args) {
+    /*public static void main(String[] args) {
         try {
             // ✅ Connect to database immediately at startup
             conn = AdminDatabaseConnectivity.getConnection();
@@ -198,7 +198,7 @@ public class AddAdmin extends JPanel implements ActionListener {
         } catch (UareUException e) {
             e.printStackTrace();
         }
-    }
+    }*/
 
     @Override
     public void actionPerformed(ActionEvent e) {
